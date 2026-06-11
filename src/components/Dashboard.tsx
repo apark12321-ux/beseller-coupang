@@ -18,12 +18,14 @@ export default function Dashboard() {
   const [selected, setSelected] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<string>("");
+  const [storage, setStorage] = useState<string>("");
 
   const load = useCallback(async (t: string) => {
     const data = await api(`/api/products?status=${t}`);
     setItems(data.items || []);
     setCounts(data.counts || {});
     setSystem(data.system || {});
+    setStorage(data.storage || "");
   }, []);
 
   useEffect(() => { load(tab); }, [tab, load]);
@@ -68,6 +70,13 @@ export default function Dashboard() {
       </header>
 
       {msg && <div className="mb-3 text-sm text-gray-700 bg-yellow-50 border border-yellow-200 rounded px-3 py-2">{msg}</div>}
+
+      {storage === "file" && typeof window !== "undefined" && !["localhost", "127.0.0.1"].includes(window.location.hostname) && (
+        <div className="mb-3 text-sm text-red-700 bg-red-50 border border-red-300 rounded px-3 py-2">
+          ⚠ 서버리스(배포) 환경인데 저장소가 <b>파일 모드</b>입니다. 업로드/저장이 실패합니다.
+          Vercel에 Upstash Redis를 연결하고(<code>UPSTASH_REDIS_REST_URL/TOKEN</code> 또는 <code>KV_REST_API_URL/TOKEN</code>) 재배포하세요.
+        </div>
+      )}
 
       <div className="flex flex-wrap gap-1 mb-3">
         {TABS.map((t) => (

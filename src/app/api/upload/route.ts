@@ -28,10 +28,17 @@ export async function POST(req: NextRequest) {
     createdAt: new Date().toISOString(),
   };
 
-  await mutate((db) => {
-    db.uploads.push(upload);
-    db.products.push(...products);
-  });
+  try {
+    await mutate((db) => {
+      db.uploads.push(upload);
+      db.products.push(...products);
+    });
+  } catch (e: any) {
+    if (e?.code === "STORAGE_NOT_WRITABLE") {
+      return NextResponse.json({ error: e.message, code: "STORAGE_NOT_WRITABLE" }, { status: 503 });
+    }
+    return NextResponse.json({ error: String(e?.message ?? e) }, { status: 500 });
+  }
 
   const counts = products.reduce<Record<string, number>>((acc, p) => {
     acc[p.status] = (acc[p.status] ?? 0) + 1;

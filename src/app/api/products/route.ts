@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { readDB } from "@/lib/db";
+import { storageMode } from "@/lib/store";
 
 export const runtime = "nodejs";
 
@@ -26,5 +27,5 @@ export async function GET(req: NextRequest) {
   const counts = db.products.reduce<Record<string, number>>((a, p) => {
     a[p.status] = (a[p.status] ?? 0) + 1; a.all = (a.all ?? 0) + 1; return a;
   }, {});
-  return NextResponse.json({ items, counts, system: db.system });
+  return NextResponse.json({ items, counts, system: db.system, storage: storageMode() });
 }

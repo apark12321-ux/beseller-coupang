@@ -52,6 +52,21 @@ function ensureFile() {
 }
 
 // ── 공개 API ─────────────────────────────────────────────────────────────────
+export function storageMode(): "redis" | "file" {
+  return usingRedis() ? "redis" : "file";
+}
+
+// 쓰기 불가 환경(예: Vercel 파일시스템) + Redis 미설정일 때 던지는 에러.
+export class StorageNotWritableError extends Error {
+  code = "STORAGE_NOT_WRITABLE";
+  constructor() {
+    super(
+      "저장소에 쓸 수 없습니다. Vercel 등 서버리스 배포라면 Upstash Redis 환경변수" +
+        "(UPSTASH_REDIS_REST_URL/TOKEN 또는 KV_REST_API_URL/TOKEN)를 설정하세요."
+    );
+  }
+}
+
 export async function loadDB(): Promise<DB> {
   if (usingRedis()) {
     try {
@@ -61,8 +76,9 @@ export async function loadDB(): Promise<DB> {
       return structuredClone(EMPTY);
     }
   }
-  ensureFile();
+  // 파일 모드: 읽기는 절대 500을 내지 않고 빈 DB로 degrade(읽기전용 FS 포함).
   try {
+    ensureFile();
     return normalize(JSON.parse(fs.readFileSync(DB_PATH, "utf-8")));
   } catch {
     return structuredClone(EMPTY);
@@ -74,8 +90,16 @@ export async function saveDB(db: DB): Promise<void> {
     await redisCmd(["SET", KEY, JSON.stringify(db)]);
     return;
   }
-  ensureFile();
-  const tmp = DB_PATH + ".tmp";
-  fs.writeFileSync(tmp, JSON.stringify(db, null, 2), "utf-8");
-  fs.renameSync(tmp, DB_PATH);
+  // 파일 모드 쓰기. 읽기전용 FS면 명확한 에러로 변환(원시 EROFS 500 방지).
+  try {
+    ensureFile();
+    const tmp = DB_PATH + ".tmp";
+    fs.writeFileSync(tmp, JSON.stringify(db, null, 2), "utf-8");
+    fs.renameSync(tmp, DB_PATH);
+  } catch (e: any) {
+    if (e?.code === "EROFS" || e?.code === "EACCES" || e?.code === "EPERM") {
+      throw new StorageNotWritableError();
+    }
+    throw e;
+  }
 }
