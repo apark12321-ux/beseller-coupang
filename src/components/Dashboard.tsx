@@ -1,7 +1,9 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
+import Papa from "papaparse";
 import { STATUS_LABEL, STATUS_COLOR, CAT_COLOR, won, api } from "@/lib/ui";
+import { detectHeaderIndex } from "@/lib/pipeline/csv";
 import ProductDetail from "@/components/ProductDetail";
 
 const TABS = [
@@ -38,15 +40,49 @@ export default function Dashboard() {
   async function onUpload(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     if (!file) return;
-    setBusy(true); setMsg("업로드/파싱 중...");
-    const fd = new FormData();
-    fd.append("file", file);
-    const r = await api("/api/upload", { method: "POST", body: fd });
-    setBusy(false);
-    if (r.error) { setMsg("오류: " + r.error); return; }
-    setMsg(`업로드 완료: ${r.rowCount}행 (${JSON.stringify(r.counts)})`);
-    load(tab, 1);
     e.target.value = "";
+    setBusy(true); setMsg("파일 읽는 중...");
+    try {
+      // 1) 브라우저에서 디코딩(UTF-8 → 깨지면 EUC-KR)
+      const buf = await file.arrayBuffer();
+      let text = new TextDecoder("utf-8").decode(buf);
+      if ((text.match(/\uFFFD/g) || []).length > 2) {
+        try { text = new TextDecoder("euc-kr").decode(buf); } catch {}
+      }
+      // 2) 파싱 + 헤더행 탐지
+      const parsed = Papa.parse<string[]>(text, { header: false, skipEmptyLines: true });
+      const allRows = (parsed.data as string[][]).filter((r) => Array.isArray(r) && r.length > 1);
+      if (allRows.length === 0) { setMsg("오류: 파싱된 행 없음"); setBusy(false); return; }
+      const hi = detectHeaderIndex(allRows);
+      const header = allRows[hi];
+      const dataRows = allRows.slice(hi + 1);
+
+      // 3) 배치 전송 (Vercel 4.5MB 본문 제한 회피)
+      const uploadId = (crypto as any).randomUUID ? crypto.randomUUID() : String(Date.now());
+      const BATCH = 400;
+      const totalRows = dataRows.length;
+      let added = 0;
+      const agg: Record<string, number> = {};
+      for (let i = 0; i < dataRows.length; i += BATCH) {
+        const rows = dataRows.slice(i, i + BATCH);
+        const batchIndex = i / BATCH;
+        setMsg(`업로드 중... ${Math.min(i + BATCH, totalRows)}/${totalRows}`);
+        const r = await api("/api/upload-rows", {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ uploadId, filename: file.name, header, rows, batchIndex, rowOffset: i, totalRows }),
+        });
+        if (r.error) { setMsg(`오류(${added}건 저장됨): ${r.error}`); setBusy(false); load(tab, 1); return; }
+        added += r.added || 0;
+        for (const [k, v] of Object.entries(r.counts || {})) agg[k] = (agg[k] || 0) + (v as number);
+      }
+      setMsg(`업로드 완료: ${added}건 (${JSON.stringify(agg)})`);
+      setPage(1);
+      load(tab, 1);
+    } catch (err: any) {
+      setMsg("오류: " + String(err?.message ?? err));
+    } finally {
+      setBusy(false);
+    }
   }
 
   async function onReset() {

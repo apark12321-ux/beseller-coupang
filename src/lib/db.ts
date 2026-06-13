@@ -42,3 +42,7 @@ export function addUpload(upload: Upload, products: Product[]): Promise<void> {
 export function resetAll(): Promise<number> {
   return enqueue(() => store.clearAllProducts());
 }
+
+export function appendProducts(products: Product[]): Promise<void> {
+  return enqueue(() => store.appendProducts(products));
+}

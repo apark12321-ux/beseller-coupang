@@ -2,19 +2,17 @@ import Papa from "papaparse";
 import iconv from "iconv-lite";
 
 // 비셀러(메이크샵 일괄등록 양식) CSV 파서.
-// - 인코딩: UTF-8 우선, 깨지면 EUC-KR(CP949)
-// - 헤더 2줄 구조: 1행=한글설명, 2행=머신필드명(category_code/product_name/sell_price...)
-//   → "category_code" 가 있는 행을 헤더로 잡고 그 다음부터 데이터로 처리.
+// 서버: parseCsv(buf). 클라이언트 배치 업로드: detectHeaderIndex + mapDataRows 공용 사용.
 
 export interface RawRow {
   categoryCode: string;
   categoryLabel: string;
   name: string;
-  supplyPrice: number; // sell_price (= 비셀러 공급가; 의미는 운영자 확인값)
+  supplyPrice: number;
   sku: string;
-  vatType: "TAX" | "FREE" | null; // vat_type: 과세/면세
-  origin: string; // 원산지
-  detailImages: string[]; // 보정 전 원본(파일명/URL)
+  vatType: "TAX" | "FREE" | null;
+  origin: string;
+  detailImages: string[];
   raw: Record<string, string>;
 }
 
@@ -38,8 +36,7 @@ export function decodeBuffer(buf: Buffer): string {
   if (!looksMojibake(utf8)) return utf8;
   return iconv.decode(buf, "euc-kr");
 }
-
-function norm(s: string): string {
+export function norm(s: string): string {
   return (s || "").split(/[\n\r]/)[0].replace(/\s+/g, "").toLowerCase();
 }
 function buildIndex(header: string[]): Record<string, number> {
@@ -62,19 +59,15 @@ function vat(s: string): "TAX" | "FREE" | null {
   return null;
 }
 
-export function parseCsv(buf: Buffer): RawRow[] {
-  const text = decodeBuffer(buf);
-  const parsed = Papa.parse<string[]>(text, { header: false, skipEmptyLines: true });
-  const allRows = (parsed.data as string[][]).filter((r) => Array.isArray(r) && r.length > 1);
-  if (allRows.length === 0) return [];
+// 머신필드행(category_code 포함) 인덱스. 없으면 0.
+export function detectHeaderIndex(rows: string[][]): number {
+  const i = rows.findIndex((r) => r.some((c) => norm(c) === "category_code"));
+  return i < 0 ? 0 : i;
+}
 
-  let headerIdx = allRows.findIndex((r) => r.some((c) => norm(c) === "category_code"));
-  if (headerIdx < 0) headerIdx = 0;
-
-  const header = allRows[headerIdx];
+// header + 데이터행 → RawRow[] (서버/클라 공용)
+export function mapDataRows(header: string[], dataRows: string[][]): RawRow[] {
   const idx = buildIndex(header);
-  const dataRows = allRows.slice(headerIdx + 1);
-
   const cCat = findCol(idx, COLUMN_ALIASES.categoryCode);
   const cName = findCol(idx, COLUMN_ALIASES.name);
   const cPrice = findCol(idx, COLUMN_ALIASES.supplyPrice);
@@ -84,7 +77,6 @@ export function parseCsv(buf: Buffer): RawRow[] {
   const cImg1 = findCol(idx, IMAGE_PRIMARY);
   const cImg2 = findCol(idx, IMAGE_SECONDARY);
   const cLabel = LABEL_COLS.map((l) => findCol(idx, [l])).find((i) => i >= 0) ?? -1;
-
   const at = (r: string[], i: number) => (i >= 0 && i < r.length ? String(r[i] ?? "").trim() : "");
 
   return dataRows
@@ -92,9 +84,7 @@ export function parseCsv(buf: Buffer): RawRow[] {
       const imgs: string[] = [];
       [at(r, cImg1), at(r, cImg2)].forEach((s) => {
         if (s && s.toUpperCase() !== "AUTO") {
-          s.split(/[|,;\n]/).map((x) => x.trim()).filter(Boolean).forEach((u) => {
-            if (!imgs.includes(u)) imgs.push(u);
-          });
+          s.split(/[|,;\n]/).map((x) => x.trim()).filter(Boolean).forEach((u) => { if (!imgs.includes(u)) imgs.push(u); });
         }
       });
       return {
@@ -110,4 +100,13 @@ export function parseCsv(buf: Buffer): RawRow[] {
       } as RawRow;
     })
     .filter((row) => row.name);
+}
+
+export function parseCsv(buf: Buffer): RawRow[] {
+  const text = decodeBuffer(buf);
+  const parsed = Papa.parse<string[]>(text, { header: false, skipEmptyLines: true });
+  const allRows = (parsed.data as string[][]).filter((r) => Array.isArray(r) && r.length > 1);
+  if (allRows.length === 0) return [];
+  const hi = detectHeaderIndex(allRows);
+  return mapDataRows(allRows[hi], allRows.slice(hi + 1));
 }

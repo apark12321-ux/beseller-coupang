@@ -190,3 +190,19 @@ export async function clearAllProducts(): Promise<number> {
   fileWrite(db);
   return n;
 }
+
+// 배치 업로드용: 상품만 추가(업로드 메타는 호출측에서 setMeta로 처리)
+export async function appendProducts(products: Product[]): Promise<void> {
+  if (usingRedis()) {
+    for (const part of chunk(products, 200)) {
+      await pipeline(part.map((p) => ["SET", kProd(p.id), JSON.stringify(p)]));
+    }
+    const index = await getIndex();
+    index.push(...products.map((p) => ({ id: p.id, status: p.status })));
+    await cmd(["SET", K_INDEX, JSON.stringify(index)]);
+    return;
+  }
+  const db = fileRead();
+  db.products.push(...products);
+  fileWrite(db);
+}
