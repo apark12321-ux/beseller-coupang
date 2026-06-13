@@ -1,30 +1,44 @@
-import { DB } from "./types";
-import { loadDB, saveDB } from "./store";
+import { Product, Upload } from "./types";
+import * as store from "./store";
 
-// 저장소 추상화 위에 올린 직렬 큐.
-// 로컬(파일) / Vercel(Upstash Redis) 모두 동일 인터페이스.
-// 주의: 서버리스에서는 인스턴스 간 동시성까지는 보장 못함(단일 사용자 기준 last-write-wins).
-
-export async function readDB(): Promise<DB> {
-  return loadDB();
-}
-
+// 직렬 큐(같은 인스턴스 내 쓰기 순서 보장).
 let queue: Promise<void> = Promise.resolve();
-
-// 모든 변경은 mutate 를 통해 직렬화한다(같은 인스턴스 내).
-export function mutate<T>(fn: (db: DB) => T): Promise<T> {
-  const run = async (): Promise<T> => {
-    const db = await loadDB();
-    const result = fn(db);
-    await saveDB(db);
-    return result;
-  };
+function enqueue<T>(run: () => Promise<T>): Promise<T> {
   const next = queue.then(run, run);
   queue = next.then(() => undefined, () => undefined);
   return next;
 }
 
-export async function getProduct(id: string) {
-  const db = await loadDB();
-  return db.products.find((p) => p.id === id) ?? null;
+export const getProduct = store.getProduct;
+export const listProducts = store.listProducts;
+export const getMeta = store.getMeta;
+
+// 상품 1건 변경(편집). 해당 상품 키만 갱신.
+export function mutateProduct<T>(id: string, fn: (p: Product) => T): Promise<{ product: Product | null; result: T | null }> {
+  return enqueue(async () => {
+    const p = await store.getProduct(id);
+    if (!p) return { product: null, result: null };
+    const result = fn(p);
+    p.updatedAt = new Date().toISOString();
+    await store.saveProduct(p);
+    return { product: p, result };
+  });
+}
+
+// 시스템/업로드(meta) 변경.
+export function mutateMeta<T>(fn: (meta: store.Meta) => T): Promise<T> {
+  return enqueue(async () => {
+    const meta = await store.getMeta();
+    const r = fn(meta);
+    await store.setMeta(meta);
+    return r;
+  });
+}
+
+export function addUpload(upload: Upload, products: Product[]): Promise<void> {
+  return enqueue(() => store.addProducts(upload, products));
+}
+
+export function resetAll(): Promise<number> {
+  return enqueue(() => store.clearAllProducts());
 }

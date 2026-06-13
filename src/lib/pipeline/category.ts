@@ -34,10 +34,13 @@ export function matchCategory(
   beSellerCode: string | null,
   beSellerLabel: string | null,
   name: string,
-  classifyStatus: ProductStatus
+  classifyStatus: ProductStatus,
+  vatOverride?: "TAX" | "FREE" | null
 ): CategoryMatch {
   const code = (beSellerCode || "").trim().toUpperCase();
-  const taxType = TAX_FREE_PREFIXES.some((p) => code.startsWith(p)) ? "FREE" : "TAX";
+  // CSV vat_type 우선, 없으면 prefix 추정
+  const taxType: "TAX" | "FREE" =
+    vatOverride ?? (TAX_FREE_PREFIXES.some((p) => code.startsWith(p)) ? "FREE" : "TAX");
 
   const base: CategoryMatch = {
     beSellerCode: beSellerCode || null,

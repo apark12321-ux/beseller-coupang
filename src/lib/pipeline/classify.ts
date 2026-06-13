@@ -1,4 +1,4 @@
-import { EXCLUDED_CODES, NEEDS_REVIEW_CODES, INCLUDABLE_CODES } from "../config";
+import { EXCLUDED_CODES, NEEDS_REVIEW_CODES, INCLUDABLE_CODES, FRUIT_PREFIX } from "../config";
 import { ProductStatus } from "../types";
 
 export interface Classification {
@@ -25,7 +25,7 @@ export function classify(categoryCode: string, name: string): Classification {
     return { status: "candidate", reason: null };
   }
   // 과일류(C002005xxx)
-  if (code.startsWith("C002005")) {
+  if (code.startsWith(FRUIT_PREFIX)) {
     return { status: "candidate", reason: null };
   }
   // 빈 코드: 상품명으로 과일 추정

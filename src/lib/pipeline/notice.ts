@@ -36,7 +36,8 @@ const AGRI_FIELDS = [
 
 export function buildNotice(
   isAgriMarine: boolean,
-  packageUnit: string
+  packageUnit: string,
+  origin?: string
 ): NoticeBlock {
   const templateId = isAgriMarine ? "agri_marine" : "food_processed";
   const fieldNames = isAgriMarine ? AGRI_FIELDS : PROCESSED_FIELDS;
@@ -44,6 +45,7 @@ export function buildNotice(
   const fields = fieldNames.map((name) => {
     if (name.includes("포장단위별")) return { name, content: packageUnit || REF };
     if (name.includes("소비자상담")) return { name, content: CS_PHONE };
+    if (name === "원산지" && origin) return { name, content: origin };
     return { name, content: REF };
   });
 
@@ -55,8 +57,8 @@ export function buildNotice(
   };
 }
 
-// 농수산물 판별(과일/쌀/잡곡/김/건어물 등 미·약가공)
-const AGRI_PREFIXES = ["C002005", "C002003003", "C002004002", "C002004004"];
+// 농수산물 판별(과일·농산물·수산 미·약가공) → 농수산물 고시 템플릿
+const AGRI_PREFIXES = ["C002005", "C002003", "C002004", "C003003"];
 export function isAgriMarine(categoryCode: string | null): boolean {
   const code = (categoryCode || "").toUpperCase();
   return AGRI_PREFIXES.some((p) => code.startsWith(p));

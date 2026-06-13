@@ -19,16 +19,21 @@ export default function Dashboard() {
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<string>("");
   const [storage, setStorage] = useState<string>("");
+  const [page, setPage] = useState(1);
+  const [total, setTotal] = useState(0);
+  const PAGE_SIZE = 50;
 
-  const load = useCallback(async (t: string) => {
-    const data = await api(`/api/products?status=${t}`);
+  const load = useCallback(async (t: string, pg: number) => {
+    const data = await api(`/api/products?status=${t}&page=${pg}&pageSize=${PAGE_SIZE}`);
     setItems(data.items || []);
     setCounts(data.counts || {});
     setSystem(data.system || {});
     setStorage(data.storage || "");
+    setTotal(data.total || 0);
   }, []);
 
-  useEffect(() => { load(tab); }, [tab, load]);
+  useEffect(() => { load(tab, page); }, [tab, page, load]);
+  useEffect(() => { setPage(1); }, [tab]);
 
   async function onUpload(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
@@ -40,7 +45,7 @@ export default function Dashboard() {
     setBusy(false);
     if (r.error) { setMsg("오류: " + r.error); return; }
     setMsg(`업로드 완료: ${r.rowCount}행 (${JSON.stringify(r.counts)})`);
-    load(tab);
+    load(tab, 1);
     e.target.value = "";
   }
 
@@ -52,7 +57,7 @@ export default function Dashboard() {
     if (r.error) { setMsg("오류: " + r.error); return; }
     setSelected(null);
     setMsg(`초기화 완료: ${r.removed}건 삭제`);
-    load(tab);
+    load(tab, 1);
   }
 
   const cooldownActive = system?.cooldownUntil && new Date(system.cooldownUntil) > new Date();
@@ -151,11 +156,25 @@ export default function Dashboard() {
               )}
             </tbody>
           </table>
+          {total > 0 && (
+            <div className="flex items-center justify-between px-3 py-2 border-t bg-gray-50 text-xs text-gray-600">
+              <span>
+                {(page - 1) * PAGE_SIZE + 1}–{Math.min(page * PAGE_SIZE, total)} / 총 {total.toLocaleString("ko-KR")}건
+              </span>
+              <div className="flex gap-1">
+                <button className="btn bg-white border-gray-300 disabled:opacity-40" disabled={page <= 1}
+                  onClick={() => setPage((v) => Math.max(1, v - 1))}>이전</button>
+                <span className="px-2 py-1">{page} / {Math.max(1, Math.ceil(total / PAGE_SIZE))}</span>
+                <button className="btn bg-white border-gray-300 disabled:opacity-40" disabled={page >= Math.ceil(total / PAGE_SIZE)}
+                  onClick={() => setPage((v) => v + 1)}>다음</button>
+              </div>
+            </div>
+          )}
         </div>
 
         <div>
           {selected
-            ? <ProductDetail id={selected} system={system} onChanged={() => load(tab)} />
+            ? <ProductDetail id={selected} system={system} onChanged={() => load(tab, page)} />
             : <div className="card p-8 text-center text-gray-400">상품을 선택하면 상세가 표시됩니다.</div>}
         </div>
       </div>

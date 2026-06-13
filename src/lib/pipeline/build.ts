@@ -16,13 +16,13 @@ export function buildProduct(row: RawRow, uploadId: string, rowIndex: number): P
   const id = crypto.randomUUID();
 
   const cls = classify(row.categoryCode, row.name);
-  const category = matchCategory(row.categoryCode, row.categoryLabel, row.name, cls.status);
+  const category = matchCategory(row.categoryCode, row.categoryLabel, row.name, cls.status, row.vatType);
   const names = generateNames(row.name);
   const price = calcPrice(row.supplyPrice, row.categoryCode);
   const sku = row.sku || `${uploadId.slice(0, 8)}-${rowIndex}`;
   const option = toOptionInfo(row.name, sku, price.salePrice, price.originalPrice);
   const images = buildImageSet(row.detailImages);
-  const notice = buildNotice(isAgriMarine(row.categoryCode), option.packageUnit);
+  const notice = buildNotice(isAgriMarine(row.categoryCode), option.packageUnit, row.origin);
 
   const blockReasons: string[] = [];
   if (cls.reason) blockReasons.push(cls.reason);

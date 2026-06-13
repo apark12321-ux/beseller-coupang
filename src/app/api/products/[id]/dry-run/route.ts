@@ -1,24 +1,16 @@
 import { NextResponse } from "next/server";
-import { getProduct, mutate } from "@/lib/db";
+import { getProduct, mutateProduct } from "@/lib/db";
 import { precheck } from "@/lib/coupang/precheck";
 import { buildPayload } from "@/lib/coupang/payload";
 import { scrub } from "@/lib/mask";
-
 export const runtime = "nodejs";
 
-// Dry Run: 실제 쿠팡 호출 없음. payload 생성 + 로컬 pre-check 만.
 export async function POST(_req: Request, { params }: { params: { id: string } }) {
   const p = await getProduct(params.id);
   if (!p) return NextResponse.json({ error: "not found" }, { status: 404 });
-
   const check = precheck(p);
   const payload = buildPayload(p, false);
-
-  await mutate((db) => {
-    const t = db.products.find((x) => x.id === params.id);
-    if (t) { t.dryRunOk = !check.blocked; t.updatedAt = new Date().toISOString(); }
-  });
-
+  await mutateProduct(params.id, (x) => { x.dryRunOk = !check.blocked; });
   return NextResponse.json({
     dryRunOk: !check.blocked,
     errorClass: check.blocked ? "LOCAL_PRECHECK_BLOCKED" : null,
