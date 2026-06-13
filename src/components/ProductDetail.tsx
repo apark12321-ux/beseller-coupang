@@ -4,8 +4,8 @@ import { useEffect, useState, useCallback } from "react";
 import { won, api, CAT_COLOR } from "@/lib/ui";
 
 export default function ProductDetail({
-  id, system, onChanged,
-}: { id: string; system: any; onChanged: () => void }) {
+  id, system, onChanged, onClose,
+}: { id: string; system: any; onChanged: () => void; onClose?: () => void }) {
   const [p, setP] = useState<any>(null);
   const [check, setCheck] = useState<any>(null);
   const [payload, setPayload] = useState<any>(null);
@@ -63,7 +63,15 @@ export default function ProductDetail({
     p.lastErrorClass !== "COUPANG_CREATED_SUCCESS";
 
   return (
-    <div className="card p-4 space-y-4 max-h-[calc(100vh-120px)] overflow-y-auto text-sm">
+    <div className="panel" style={{ display: "flex", flexDirection: "column", maxHeight: "calc(100vh - 320px)" }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "12px 16px", borderBottom: "1px solid var(--line)", position: "sticky", top: 0, background: "var(--surface)", zIndex: 2 }}>
+        <div style={{ minWidth: 0 }}>
+          <div style={{ fontSize: 14, fontWeight: 800, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{p.finalName}</div>
+          <div className="mono" style={{ fontSize: 11, color: "var(--faint)" }}>{p.externalVendorSku} · {p.beSellerCode || "코드없음"}</div>
+        </div>
+        {onClose && <button className="btn" onClick={onClose} style={{ padding: "5px 10px" }}>닫기 ✕</button>}
+      </div>
+      <div className="p-4 space-y-4 text-sm" style={{ overflowY: "auto" }}>
       <Section title="기본 정보">
         <div className="text-xs text-gray-500">원본: {p.originalName}</div>
         <div className="text-xs text-gray-500">SKU: {p.externalVendorSku}</div>
@@ -179,6 +187,7 @@ export default function ProductDetail({
           </div>
         )}
       </Section>
+      </div>
     </div>
   );
 }

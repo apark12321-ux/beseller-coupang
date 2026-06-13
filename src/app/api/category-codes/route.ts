@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { aggregateCategoryCodes, getMeta } from "@/lib/db";
 import { EXCLUDED_CODES, NEEDS_REVIEW_CODES, INCLUDABLE_CODES } from "@/lib/config";
 export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
 
 const LABEL = (code: string): string =>
   EXCLUDED_CODES[code] ? `제외:${EXCLUDED_CODES[code]}`

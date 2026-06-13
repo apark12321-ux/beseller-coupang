@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { api } from "@/lib/ui";
 
-export default function CategoryMapPanel() {
+export default function CategoryMapPanel({ onChanged }: { onChanged?: () => void }) {
   const [items, setItems] = useState<any[]>([]);
   const [draft, setDraft] = useState<Record<string, { code: string; path: string }>>({});
   const [busy, setBusy] = useState(false);
@@ -23,14 +23,14 @@ export default function CategoryMapPanel() {
     const d = draft[code] || { code: "", path: "" };
     const r = await api("/api/category-map", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ code, displayCategoryCode: d.code, coupangPath: d.path }) });
     setBusy(false);
-    if (r.ok) { setMsg(`저장됨: ${code}`); load(); }
+    if (r.ok) { setMsg(`저장됨: ${code}`); load(); onChanged?.(); }
   }
 
   const totalProducts = items.reduce((a, it) => a + it.count, 0);
   const coveredProducts = items.filter((it) => draft[it.code]?.code).reduce((a, it) => a + it.count, 0);
 
   return (
-    <div className="card p-5 space-y-3 text-sm">
+    <div className="panel" style={{padding:20}}>
       <div className="flex items-center justify-between">
         <h2 className="font-bold text-base">카테고리 일괄 매핑</h2>
         <span className="text-xs text-gray-500">
