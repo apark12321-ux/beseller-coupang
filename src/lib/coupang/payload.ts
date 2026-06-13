@@ -12,7 +12,7 @@ function isoPlus(years: number): string {
   return d.toISOString().slice(0, 19);
 }
 
-export function buildPayload(p: Product, requested = false) {
+export function buildPayload(p: Product, requested = false, resolvedCategoryCode?: string | null) {
   const o = p.option;
   const attributes = toAttributes(o);
   const contents = buildContents(p.images);
@@ -50,7 +50,7 @@ export function buildPayload(p: Product, requested = false) {
   };
 
   return {
-    displayCategoryCode: p.category.displayCategoryCode,
+    displayCategoryCode: resolvedCategoryCode ?? p.category.displayCategoryCode,
     sellerProductName: p.finalName,
     vendorId: env.vendorId,
     saleStartedAt: isoPlus(0),

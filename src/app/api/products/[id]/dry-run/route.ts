@@ -1,15 +1,18 @@
 import { NextResponse } from "next/server";
-import { getProduct, mutateProduct } from "@/lib/db";
+import { getProduct, getMeta, mutateProduct } from "@/lib/db";
 import { precheck } from "@/lib/coupang/precheck";
 import { buildPayload } from "@/lib/coupang/payload";
+import { resolveCategory } from "@/lib/pipeline/category";
 import { scrub } from "@/lib/mask";
 export const runtime = "nodejs";
 
 export async function POST(_req: Request, { params }: { params: { id: string } }) {
   const p = await getProduct(params.id);
   if (!p) return NextResponse.json({ error: "not found" }, { status: 404 });
-  const check = precheck(p);
-  const payload = buildPayload(p, false);
+  const meta = await getMeta();
+  const resolved = resolveCategory(p, meta.catmap);
+  const check = precheck(p, resolved.displayCategoryCode);
+  const payload = buildPayload(p, false, resolved.displayCategoryCode);
   await mutateProduct(params.id, (x) => { x.dryRunOk = !check.blocked; });
   return NextResponse.json({
     dryRunOk: !check.blocked,

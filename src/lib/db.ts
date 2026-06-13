@@ -46,3 +46,8 @@ export function resetAll(): Promise<number> {
 export function appendProducts(products: Product[]): Promise<void> {
   return enqueue(() => store.appendProducts(products));
 }
+
+export function saveProductsBatch(products: Product[]): Promise<void> {
+  return enqueue(() => store.saveProductsBatch(products));
+}
+export const aggregateCategoryCodes = store.aggregateCategoryCodes;

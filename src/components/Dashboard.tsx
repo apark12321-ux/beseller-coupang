@@ -5,15 +5,17 @@ import Papa from "papaparse";
 import { STATUS_LABEL, STATUS_COLOR, CAT_COLOR, won, api } from "@/lib/ui";
 import { detectHeaderIndex } from "@/lib/pipeline/csv";
 import ProductDetail from "@/components/ProductDetail";
+import SettingsPanel from "@/components/SettingsPanel";
+import CategoryMapPanel from "@/components/CategoryMapPanel";
 
 const TABS = [
   "all", "candidate", "needs_review", "excluded",
   "registered", "draft_saved", "register_failed",
 ];
-const STUB_TABS = ["가격 자동조정", "썸네일 관리", "쿠팡 API 설정", "카테고리 검증", "주문/발주 변환"];
 
 export default function Dashboard() {
   const [tab, setTab] = useState("all");
+  const [view, setView] = useState<"products" | "settings" | "catmap">("products");
   const [items, setItems] = useState<any[]>([]);
   const [counts, setCounts] = useState<Record<string, number>>({});
   const [system, setSystem] = useState<any>({});
@@ -134,17 +136,27 @@ export default function Dashboard() {
 
       <div className="flex flex-wrap gap-1 mb-3">
         {TABS.map((t) => (
-          <button key={t} onClick={() => setTab(t)}
-            className={`btn ${tab === t ? "bg-blue-600 text-white border-blue-600" : "bg-white border-gray-300"}`}>
+          <button key={t} onClick={() => { setTab(t); setView("products"); }}
+            className={`btn ${view === "products" && tab === t ? "bg-blue-600 text-white border-blue-600" : "bg-white border-gray-300"}`}>
             {STATUS_LABEL[t]} <span className="opacity-70">{counts[t] ?? 0}</span>
           </button>
         ))}
-        {STUB_TABS.map((t) => (
-          <button key={t} disabled title="MVP 범위 외 (placeholder)"
+        <span className="mx-1 border-l" />
+        <button onClick={() => setView("catmap")}
+          className={`btn ${view === "catmap" ? "bg-indigo-600 text-white border-indigo-600" : "bg-white border-gray-300"}`}>카테고리 매핑</button>
+        <button onClick={() => setView("settings")}
+          className={`btn ${view === "settings" ? "bg-indigo-600 text-white border-indigo-600" : "bg-white border-gray-300"}`}>설정</button>
+        {["가격 자동조정", "썸네일 관리", "주문/발주 변환"].map((t) => (
+          <button key={t} disabled title="MVP 범위 외"
             className="btn bg-gray-50 border-gray-200 text-gray-400 cursor-not-allowed">{t}</button>
         ))}
       </div>
 
+      {view === "settings" ? (
+        <SettingsPanel onRecomputed={() => load(tab, page)} />
+      ) : view === "catmap" ? (
+        <CategoryMapPanel />
+      ) : (
       <div className="grid grid-cols-[1fr_520px] gap-4">
         <div className="card overflow-hidden">
           <table className="w-full text-sm">
@@ -214,6 +226,7 @@ export default function Dashboard() {
             : <div className="card p-8 text-center text-gray-400">상품을 선택하면 상세가 표시됩니다.</div>}
         </div>
       </div>
+      )}
     </div>
   );
 }

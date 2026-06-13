@@ -87,6 +87,7 @@ export interface Product {
   externalVendorSku: string;
 
   originalName: string; // 비셀러 원본 상품명
+  beSellerCode: string; // 비셀러 카테고리코드(원본) — catmap 매핑/집계용
   finalName: string; // 최종 상품명(대표)
   nameCandidates: string[]; // 아이템위너 회피용 후보
   nameSource: FieldSource;
@@ -100,6 +101,7 @@ export interface Product {
   option: OptionInfo;
   notice: NoticeBlock;
   images: ImageSet;
+  rawImages: string[]; // 원본 이미지 파일명(베이스 재적용용)
 
   // 사용자 수정값 보호: 키별로 사용자가 직접 손댄 필드 목록.
   // 자동 재생성 시 이 목록에 든 필드는 덮어쓰지 않는다.
@@ -123,6 +125,22 @@ export interface Upload {
 }
 
 // ── 쿨다운/시스템 상태 ───────────────────────────────────────────────────────
+// ── 설정 (운영자 조정값) ─────────────────────────────────────────────────────
+export interface Settings {
+  priceMode: "supply" | "sale"; // supply=원가로 보고 마진역산 / sale=판매가 그대로
+  feeRate: number; // 쿠팡 수수료율 (supply 모드)
+  margin: number; // 목표 마진 (supply 모드)
+  originalMultiplier: number; // 정상가 = 판매가 × 배수
+  imageBaseUrl: string; // 상세/대표 이미지 파일명 앞에 붙일 베이스 URL
+}
+
+// 비셀러 카테고리코드 → 쿠팡 카테고리 일괄 매핑
+export interface CategoryMapEntry {
+  displayCategoryCode: string;
+  coupangPath: string;
+}
+export type CategoryMap = Record<string, CategoryMapEntry>;
+
 export interface SystemState {
   cooldownUntil: string | null; // 403 발생 시 24h 차단
   lastGetTestOk: boolean;

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { mapDataRows } from "@/lib/pipeline/csv";
 import { buildProduct } from "@/lib/pipeline/build";
-import { appendProducts, mutateMeta } from "@/lib/db";
+import { appendProducts, mutateMeta, getMeta } from "@/lib/db";
 import { Upload } from "@/lib/types";
 
 export const runtime = "nodejs";
@@ -17,8 +17,9 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "uploadId/header/rows 필요" }, { status: 400 });
   }
 
+  const meta = await getMeta();
   const mapped = mapDataRows(header, rows);
-  const products = mapped.map((r, i) => buildProduct(r, uploadId, rowOffset + i + 1));
+  const products = mapped.map((r, i) => buildProduct(r, uploadId, rowOffset + i + 1, meta.settings));
 
   try {
     if (batchIndex === 0) {

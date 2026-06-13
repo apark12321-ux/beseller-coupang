@@ -79,3 +79,17 @@ export function checkMismatch(name: string, path: string): string | null {
   const v = FORBIDDEN.find((f) => f.when.test(name) && path.includes(f.forbid));
   return v ? v.label : null;
 }
+
+import { CategoryMap } from "../types";
+// 효과적 카테고리: 상품 개별 지정값 우선, 없으면 catmap[비셀러코드] 사용.
+export function resolveCategory(
+  product: { beSellerCode: string; category: CategoryMatch },
+  catmap: CategoryMap
+): { displayCategoryCode: string | null; coupangPath: string | null } {
+  if (product.category.displayCategoryCode) {
+    return { displayCategoryCode: product.category.displayCategoryCode, coupangPath: product.category.coupangPath };
+  }
+  const m = catmap[product.beSellerCode];
+  if (m && m.displayCategoryCode) return { displayCategoryCode: m.displayCategoryCode, coupangPath: m.coupangPath || product.category.coupangPath };
+  return { displayCategoryCode: null, coupangPath: product.category.coupangPath };
+}

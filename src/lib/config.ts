@@ -1,5 +1,6 @@
 // 환경변수 + 상수 단일 출처.
 // 절대 .env.local 원문을 응답/로그/리포트로 내보내지 않는다.
+import { Settings } from "./types";
 
 export const env = {
   accessKey: process.env.COUPANG_ACCESS_KEY ?? "",
@@ -97,3 +98,11 @@ export const DELIVERY = {
 // ── 이미지 URL 보정 ──────────────────────────────────────────────────────────
 export const BESELLER_IMG_BASE = "https://beseller.net/shopimages/beseller/";
 export const MAKESHOP_HOST = "beseller.img50.makeshop.info";
+
+export const DEFAULT_SETTINGS: Settings = {
+  priceMode: "supply",
+  feeRate: 0.108,
+  margin: 0.2,
+  originalMultiplier: 1.2,
+  imageBaseUrl: BESELLER_IMG_BASE,
+};

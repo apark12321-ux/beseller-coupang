@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getProduct, getMeta, mutateMeta, mutateProduct } from "@/lib/db";
+import { resolveCategory } from "@/lib/pipeline/category";
 import { precheck } from "@/lib/coupang/precheck";
 import { buildPayload } from "@/lib/coupang/payload";
 import { createSellerProduct } from "@/lib/coupang/client";
@@ -23,7 +24,8 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     return NextResponse.json({ blocked: true, reason: "NO_GET_TEST", message: "GET 테스트 성공 후에만 가능" }, { status: 412 });
   }
   // 게이트 3: pre-check + Dry Run
-  const check = precheck(p);
+  const resolved = resolveCategory(p, meta.catmap);
+  const check = precheck(p, resolved.displayCategoryCode);
   if (check.blocked) {
     return NextResponse.json({ blocked: true, reason: "LOCAL_PRECHECK_BLOCKED", errorClass: "LOCAL_PRECHECK_BLOCKED",
       precheck: check, message: "로컬 pre-check 차단 (쿠팡 호출 안 함)" }, { status: 422 });
@@ -37,7 +39,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   }
 
   // 실제 호출 (requested=false 강제)
-  const payload = buildPayload(p, false);
+  const payload = buildPayload(p, false, resolved.displayCategoryCode);
   const result = await createSellerProduct(payload);
 
   if (result.errorClass === "COUPANG_GATEWAY_ACCESS_DENIED") {

@@ -3,25 +3,27 @@ import { Product } from "../types";
 import { classify } from "./classify";
 import { matchCategory } from "./category";
 import { generateNames } from "./name";
-import { calcPrice } from "./price";
+import { calcPrice, calcPriceWithSettings } from "./price";
 import { toOptionInfo } from "./options";
 import { buildImageSet } from "./images";
 import { buildNotice, isAgriMarine } from "./notice";
+import { Settings } from "../types";
+import { DEFAULT_SETTINGS } from "../config";
 import crypto from "crypto";
 
 // RawRow → Product. 업로드 시 1회 자동 실행.
 
-export function buildProduct(row: RawRow, uploadId: string, rowIndex: number): Product {
+export function buildProduct(row: RawRow, uploadId: string, rowIndex: number, settings: Settings = DEFAULT_SETTINGS): Product {
   const now = new Date().toISOString();
   const id = crypto.randomUUID();
 
   const cls = classify(row.categoryCode, row.name);
   const category = matchCategory(row.categoryCode, row.categoryLabel, row.name, cls.status, row.vatType);
   const names = generateNames(row.name);
-  const price = calcPrice(row.supplyPrice, row.categoryCode);
+  const price = calcPriceWithSettings(row.supplyPrice, settings);
   const sku = row.sku || `${uploadId.slice(0, 8)}-${rowIndex}`;
   const option = toOptionInfo(row.name, sku, price.salePrice, price.originalPrice);
-  const images = buildImageSet(row.detailImages);
+  const images = buildImageSet(row.detailImages, settings.imageBaseUrl);
   const notice = buildNotice(isAgriMarine(row.categoryCode), option.packageUnit, row.origin);
 
   const blockReasons: string[] = [];
@@ -35,6 +37,7 @@ export function buildProduct(row: RawRow, uploadId: string, rowIndex: number): P
     rowIndex,
     externalVendorSku: sku,
     originalName: row.name,
+    beSellerCode: row.categoryCode || "",
     finalName: names.finalName,
     nameCandidates: names.candidates,
     nameSource: "auto",
@@ -45,6 +48,7 @@ export function buildProduct(row: RawRow, uploadId: string, rowIndex: number): P
     option,
     notice,
     images,
+    rawImages: row.detailImages,
     userEditedFields: [],
     dryRunOk: false,
     lastErrorClass: null,

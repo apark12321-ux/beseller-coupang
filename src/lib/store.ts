@@ -1,6 +1,7 @@
 import fs from "fs";
 import path from "path";
-import { Product, Upload, SystemState } from "./types";
+import { Product, Upload, SystemState, Settings, CategoryMap } from "./types";
+import { DEFAULT_SETTINGS } from "./config";
 
 // 저장소 어댑터 (상품별 키 구조).
 // - Redis(Vercel): beseller:meta(업로드+시스템), beseller:index([{id,status}]), beseller:p:{id}(상품)
@@ -13,8 +14,8 @@ const K_INDEX = `${PREFIX}:index`;
 const kProd = (id: string) => `${PREFIX}:p:${id}`;
 const DB_PATH = path.join(process.cwd(), "data", "db.json");
 
-export interface Meta { uploads: Upload[]; system: SystemState }
-export interface IndexEntry { id: string; status: string }
+export interface Meta { uploads: Upload[]; system: SystemState; settings: Settings; catmap: CategoryMap }
+export interface IndexEntry { id: string; status: string; cat: string }
 
 export const EMPTY_SYSTEM: SystemState = { cooldownUntil: null, lastGetTestOk: false, lastGetTestAt: null };
 
@@ -56,11 +57,11 @@ function chunk<T>(arr: T[], n: number): T[][] {
 }
 
 // ── 파일 모드 헬퍼 ───────────────────────────────────────────────────────────
-interface FileDB { uploads: Upload[]; products: Product[]; system: SystemState }
+interface FileDB { uploads: Upload[]; products: Product[]; system: SystemState; settings?: Settings; catmap?: CategoryMap }
 function fileRead(): FileDB {
   try {
     const j = JSON.parse(fs.readFileSync(DB_PATH, "utf-8"));
-    return { uploads: j.uploads ?? [], products: j.products ?? [], system: j.system ?? { ...EMPTY_SYSTEM } };
+    return { uploads: j.uploads ?? [], products: j.products ?? [], system: j.system ?? { ...EMPTY_SYSTEM }, settings: j.settings, catmap: j.catmap };
   } catch {
     return { uploads: [], products: [], system: { ...EMPTY_SYSTEM } };
   }
@@ -83,17 +84,17 @@ export async function getMeta(): Promise<Meta> {
   if (usingRedis()) {
     try {
       const { result } = await cmd(["GET", K_META]);
-      if (result) { const m = JSON.parse(result); return { uploads: m.uploads ?? [], system: m.system ?? { ...EMPTY_SYSTEM } }; }
+      if (result) { const m = JSON.parse(result); return { uploads: m.uploads ?? [], system: m.system ?? { ...EMPTY_SYSTEM }, settings: { ...DEFAULT_SETTINGS, ...(m.settings ?? {}) }, catmap: m.catmap ?? {} }; }
     } catch {}
-    return { uploads: [], system: { ...EMPTY_SYSTEM } };
+    return { uploads: [], system: { ...EMPTY_SYSTEM }, settings: { ...DEFAULT_SETTINGS }, catmap: {} };
   }
   const db = fileRead();
-  return { uploads: db.uploads, system: db.system };
+  return { uploads: db.uploads, system: db.system, settings: { ...DEFAULT_SETTINGS, ...(db.settings ?? {}) }, catmap: db.catmap ?? {} };
 }
 
 export async function setMeta(meta: Meta): Promise<void> {
   if (usingRedis()) { await cmd(["SET", K_META, JSON.stringify(meta)]); return; }
-  const db = fileRead(); db.uploads = meta.uploads; db.system = meta.system; fileWrite(db);
+  const db = fileRead(); db.uploads = meta.uploads; db.system = meta.system; db.settings = meta.settings; db.catmap = meta.catmap; fileWrite(db);
 }
 
 export async function getIndex(): Promise<IndexEntry[]> {
@@ -101,7 +102,7 @@ export async function getIndex(): Promise<IndexEntry[]> {
     try { const { result } = await cmd(["GET", K_INDEX]); return result ? JSON.parse(result) : []; }
     catch { return []; }
   }
-  return fileRead().products.map((p) => ({ id: p.id, status: p.status }));
+  return fileRead().products.map((p) => ({ id: p.id, status: p.status, cat: p.beSellerCode || "" }));
 }
 
 export async function getProduct(id: string): Promise<Product | null> {
@@ -142,7 +143,7 @@ export async function saveProduct(p: Product): Promise<void> {
     const index = await getIndex();
     const e = index.find((x) => x.id === p.id);
     if (e) { if (e.status !== p.status) { e.status = p.status; await cmd(["SET", K_INDEX, JSON.stringify(index)]); } }
-    else { index.push({ id: p.id, status: p.status }); await cmd(["SET", K_INDEX, JSON.stringify(index)]); }
+    else { index.push({ id: p.id, status: p.status, cat: p.beSellerCode || "" }); await cmd(["SET", K_INDEX, JSON.stringify(index)]); }
     return;
   }
   const db = fileRead();
@@ -158,7 +159,7 @@ export async function addProducts(upload: Upload, products: Product[]): Promise<
       await pipeline(part.map((p) => ["SET", kProd(p.id), JSON.stringify(p)]));
     }
     const index = await getIndex();
-    index.push(...products.map((p) => ({ id: p.id, status: p.status })));
+    index.push(...products.map((p) => ({ id: p.id, status: p.status, cat: p.beSellerCode || "" })));
     await cmd(["SET", K_INDEX, JSON.stringify(index)]);
     const meta = await getMeta();
     meta.uploads.push(upload);
@@ -198,11 +199,38 @@ export async function appendProducts(products: Product[]): Promise<void> {
       await pipeline(part.map((p) => ["SET", kProd(p.id), JSON.stringify(p)]));
     }
     const index = await getIndex();
-    index.push(...products.map((p) => ({ id: p.id, status: p.status })));
+    index.push(...products.map((p) => ({ id: p.id, status: p.status, cat: p.beSellerCode || "" })));
     await cmd(["SET", K_INDEX, JSON.stringify(index)]);
     return;
   }
   const db = fileRead();
   db.products.push(...products);
   fileWrite(db);
+}
+
+// 배치 저장(재계산용): 상품 키 일괄 SET + 인덱스 상태 동기화
+export async function saveProductsBatch(products: Product[]): Promise<void> {
+  if (products.length === 0) return;
+  if (usingRedis()) {
+    for (const part of chunk(products, 200)) {
+      await pipeline(part.map((p) => ["SET", kProd(p.id), JSON.stringify(p)]));
+    }
+    const index = await getIndex();
+    const byId = new Map(products.map((p) => [p.id, p]));
+    for (const e of index) { const p = byId.get(e.id); if (p) { e.status = p.status; e.cat = p.beSellerCode || ""; } }
+    await cmd(["SET", K_INDEX, JSON.stringify(index)]);
+    return;
+  }
+  const db = fileRead();
+  const byId = new Map(products.map((p) => [p.id, p]));
+  db.products = db.products.map((p) => byId.get(p.id) ?? p);
+  fileWrite(db);
+}
+
+// 카테고리코드 집계(인덱스 기반) + 코드별 샘플 1건
+export async function aggregateCategoryCodes(): Promise<Array<{ code: string; count: number }>> {
+  const index = await getIndex();
+  const m = new Map<string, number>();
+  for (const e of index) { const c = e.cat || "(빈코드)"; m.set(c, (m.get(c) ?? 0) + 1); }
+  return Array.from(m.entries()).map(([code, count]) => ({ code, count })).sort((a, b) => b.count - a.count);
 }

@@ -10,14 +10,15 @@ export interface PrecheckResult {
   warnings: string[]; // 경고(차단 아님)
 }
 
-export function precheck(p: Product): PrecheckResult {
+export function precheck(p: Product, resolvedCategoryCode?: string | null): PrecheckResult {
   const errors: string[] = [];
   const warnings: string[] = [];
 
   if (p.status === "excluded") errors.push("판매 제외 상품");
 
   // 카테고리
-  if (!p.category.displayCategoryCode) errors.push("displayCategoryCode 미지정");
+  const dcc = resolvedCategoryCode ?? p.category.displayCategoryCode;
+  if (!dcc) errors.push("displayCategoryCode 미지정");
   if (p.category.status === "excluded") errors.push("카테고리 제외 상태");
   if (p.category.status === "mismatch_warning") warnings.push(`카테고리 오매칭 경고: ${p.category.reason ?? ""}`);
   if (p.category.status !== "stored_valid" && p.category.status !== "matched") {

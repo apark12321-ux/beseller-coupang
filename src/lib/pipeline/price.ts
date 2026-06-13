@@ -1,4 +1,5 @@
 import { PRICE_POLICY } from "../config";
+import { Settings } from "../types";
 
 // 가격 계산.
 // salePrice: 공급가에서 쿠팡 수수료 제외 후 목표 마진(기본 20%)이 남도록 역산.
@@ -61,4 +62,28 @@ export function recalcOriginal(salePrice: number): { originalPrice: number; warn
     warning = "originalPrice 자동 보정";
   }
   return { originalPrice, warning };
+}
+
+// 설정 기반 가격 계산. priceMode=supply(원가→마진역산) / sale(판매가 그대로)
+export function calcPriceWithSettings(inputPrice: number, s: Settings): PriceResult {
+  if (inputPrice <= 0) return { salePrice: 0, originalPrice: 0, marginRate: 0, warning: "공급가 없음/0" };
+
+  let salePrice: number;
+  let marginRate = 0;
+  let warning: string | null = null;
+
+  if (s.priceMode === "sale") {
+    // 입력값을 판매가로 그대로 사용(10원 올림)
+    salePrice = roundUpTo(inputPrice, 10);
+  } else {
+    const denom = 1 - s.feeRate - s.margin;
+    if (denom <= 0) return { salePrice: 0, originalPrice: 0, marginRate: 0, warning: "수수료+마진 ≥ 100%" };
+    salePrice = roundUpTo(inputPrice / denom, 10);
+    marginRate = (salePrice - salePrice * s.feeRate - inputPrice) / salePrice;
+  }
+
+  let originalPrice = roundUpTo(salePrice * s.originalMultiplier, 100);
+  if (originalPrice <= salePrice) { originalPrice = roundUpTo(salePrice + 1, 100); warning = "정상가 자동 보정"; }
+
+  return { salePrice, originalPrice, marginRate, warning };
 }
