@@ -8,12 +8,13 @@ import ProductDetail from "@/components/ProductDetail";
 import SettingsPanel from "@/components/SettingsPanel";
 import CategoryMapPanel from "@/components/CategoryMapPanel";
 import AutopilotPanel from "@/components/AutopilotPanel";
+import OpenApiPanel from "@/components/OpenApiPanel";
 
 const STATUS_PILLS = ["all", "candidate", "ready", "needs_review", "excluded", "draft_saved", "register_failed"];
 const PAGE_SIZE = 50;
 
 export default function Dashboard() {
-  const [view, setView] = useState<"products" | "settings" | "catmap" | "auto">("products");
+  const [view, setView] = useState<"products" | "settings" | "catmap" | "auto" | "openapi">("products");
   const [tab, setTab] = useState("all");
   const [items, setItems] = useState<any[]>([]);
   const [counts, setCounts] = useState<Record<string, number>>({});
@@ -94,6 +95,7 @@ export default function Dashboard() {
   const pct = (n: number, d: number) => (d > 0 ? Math.round((n / d) * 100) : 0);
 
   const stages = [
+    { no: "00", name: "OPEN API", metric: system?.lastGetTestOk ? 1 : 0, sub: system?.lastGetTestOk ? "GET OK" : "미연동", bar: system?.lastGetTestOk ? 100 : 0, cls: system?.lastGetTestOk ? "ready" : "review", onClick: () => setView("openapi") },
     { no: "01", name: "업로드", metric: all, sub: "상품", bar: all > 0 ? 100 : 0, cls: "", onClick: () => { setView("products"); setTab("all"); } },
     { no: "02", name: "정상 후보", metric: counts.candidate || 0, sub: `/ ${all}`, bar: pct(counts.candidate || 0, all), cls: "ready", onClick: () => { setView("products"); setTab("candidate"); } },
     { no: "03", name: "카테고리 매핑", metric: coverage.covered, sub: `/ ${coverage.total}`, bar: pct(coverage.covered, coverage.total), cls: "", onClick: () => setView("catmap") },
@@ -118,7 +120,7 @@ export default function Dashboard() {
       {/* signature: pipeline rail */}
       <div className="rail">
         {stages.map((s) => {
-          const active = (view === "products" && ((s.no === "01" && tab === "all") || (s.no === "02" && tab === "candidate") || false)) || (view === "catmap" && s.no === "03") || (view === "auto" && s.no === "04");
+          const active = (view === "openapi" && s.no === "00") || (view === "products" && ((s.no === "01" && tab === "all") || (s.no === "02" && tab === "candidate") || false)) || (view === "catmap" && s.no === "03") || (view === "auto" && s.no === "04");
           return (
             <button key={s.no} className={`stage ${active ? "active" : ""}`} onClick={s.onClick}>
               {up.active && s.no === "01" && <div className="rail-flow" style={{ position: "absolute", top: 0, left: 0, right: 0 }} />}
@@ -171,12 +173,15 @@ export default function Dashboard() {
         ))}
         {view !== "products" && <button className="tab2" onClick={() => setView("products")}>← 상품 목록</button>}
         <span style={{ flex: 1 }} />
+        <button className={`tab2 ${view === "openapi" ? "active" : ""}`} onClick={() => setView("openapi")}>OPEN API</button>
         <button className={`tab2 ${view === "auto" ? "active" : ""}`} onClick={() => setView("auto")}>⚡ 자동 실행</button>
         <button className={`tab2 ${view === "catmap" ? "active" : ""}`} onClick={() => setView("catmap")}>카테고리 매핑</button>
         <button className={`tab2 ${view === "settings" ? "active" : ""}`} onClick={() => setView("settings")}>설정</button>
       </div>
 
-      {view === "auto" ? (
+      {view === "openapi" ? (
+        <OpenApiPanel onChanged={() => { load(tab, page); loadCoverage(); }} />
+      ) : view === "auto" ? (
         <AutopilotPanel onChanged={() => { load(tab, page); loadCoverage(); }} />
       ) : view === "settings" ? (
         <SettingsPanel onRecomputed={() => { load(tab, page); loadCoverage(); }} />
