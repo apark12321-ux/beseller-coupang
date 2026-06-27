@@ -47,23 +47,69 @@ function normalizeResult(input: any, fallbackStatus = 502): CoupangResult {
     akamaiReference: input?.akamaiReference ?? null,
     rejectedIp: input?.rejectedIp ?? null,
     json: input?.json ?? null,
-    summary: String(input?.summary ?? "쿠팡 호출 결과를 해석하지 못했습니다."),
+    summary: String(input?.summary ?? input?.message ?? "쿠팡 호출 결과를 해석하지 못했습니다."),
   };
 }
 
 async function callViaRelay(method: "GET" | "POST", apiPath: string, query = "", body?: unknown): Promise<CoupangResult> {
-  const res = await fetch(`${env.relayUrl}/coupang/call`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "X-Relay-Secret": env.relaySecret,
-    },
-    body: JSON.stringify({ method, apiPath, query, body }),
-    cache: "no-store",
-  });
-  const json = await res.json().catch(() => null);
-  if (!res.ok) return normalizeResult(json, res.status);
-  return normalizeResult(json, res.status);
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 45_000);
+  try {
+    const res = await fetch(`${env.relayUrl}/coupang/call`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Relay-Secret": env.relaySecret,
+      },
+      body: JSON.stringify({ method, apiPath, query, body }),
+      cache: "no-store",
+      signal: controller.signal,
+    });
+
+    const contentType = res.headers.get("content-type") ?? "";
+    const text = await res.text();
+    if (!text.trim()) {
+      return {
+        ok: false,
+        httpStatus: res.status || 502,
+        contentType,
+        errorClass: "COUPANG_API_JSON_ERROR",
+        akamaiReference: null,
+        rejectedIp: null,
+        json: null,
+        summary: `릴레이 응답이 비어 있습니다. Cloudflare Tunnel 또는 PC 릴레이 연결을 확인하세요. HTTP ${res.status}`,
+      };
+    }
+
+    let json: any = null;
+    try { json = JSON.parse(text); } catch {}
+    if (!json) {
+      return {
+        ok: false,
+        httpStatus: res.status || 502,
+        contentType,
+        errorClass: "COUPANG_API_JSON_ERROR",
+        akamaiReference: null,
+        rejectedIp: null,
+        json: null,
+        summary: `릴레이가 JSON이 아닌 응답을 반환했습니다: ${text.slice(0, 200)}`,
+      };
+    }
+    return normalizeResult(json, res.status);
+  } catch (e: any) {
+    return {
+      ok: false,
+      httpStatus: 504,
+      contentType: "",
+      errorClass: "COUPANG_API_JSON_ERROR",
+      akamaiReference: null,
+      rejectedIp: null,
+      json: null,
+      summary: `릴레이 호출 실패: ${String(e?.message ?? e)}. node server.js와 cloudflared 터널이 모두 켜져 있는지 확인하세요.`,
+    };
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 async function callDirect(method: "GET" | "POST", apiPath: string, query = "", body?: unknown): Promise<CoupangResult> {
