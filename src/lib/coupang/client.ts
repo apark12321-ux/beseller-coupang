@@ -25,6 +25,16 @@ function extractAkamaiRef(html: string): string | null {
   return m ? m[1] : null;
 }
 
+function summarizeJson(json: any, fallback = "정상 응답"): string {
+  if (!json || typeof json !== "object") return fallback;
+  const code = json.code ?? json.resultCode ?? json.status;
+  const message = json.message ?? json.resultMessage ?? json.errorMessage ?? json.error;
+  if (code || message) return `code=${code ?? "?"} message=${String(message ?? "").slice(0, 200)}`;
+  if (Array.isArray(json.data)) return `${fallback} · data ${json.data.length}건`;
+  if (Array.isArray(json.content)) return `${fallback} · content ${json.content.length}건`;
+  return fallback;
+}
+
 async function call(method: "GET" | "POST", apiPath: string, query = "", body?: unknown): Promise<CoupangResult> {
   const { authorization } = sign(method, apiPath, query);
   const url = env.baseUrl + apiPath + (query ? `?${query}` : "");
@@ -51,7 +61,7 @@ async function call(method: "GET" | "POST", apiPath: string, query = "", body?: 
       errorClass: "COUPANG_GATEWAY_ACCESS_DENIED",
       akamaiReference: extractAkamaiRef(text),
       json: null,
-      summary: "쿠팡 게이트웨이 403 Access Denied (HTML). HMAC 기본구조 문제 가능성 낮음, 권한/IP 확인 필요.",
+      summary: "쿠팡 게이트웨이 403 Access Denied. 쿠팡 WING에 등록한 IP와 실제 호출 IP가 다르거나, 해당 IP가 아직 허용되지 않았습니다.",
     };
   }
 
@@ -64,34 +74,41 @@ async function call(method: "GET" | "POST", apiPath: string, query = "", body?: 
   }
 
   if (json && typeof json === "object") {
+    const code = json.code;
+    const upperCode = typeof code === "string" ? code.toUpperCase() : "";
     const hasErrorItems = Array.isArray(json.data?.errorItems) && json.data.errorItems.length > 0;
-    if (json.code === "SUCCESS" && hasErrorItems) {
+
+    if (upperCode === "SUCCESS" && hasErrorItems) {
       return {
         ok: false, httpStatus: res.status, contentType,
         errorClass: "COUPANG_CREATED_WITH_ERRORS", akamaiReference: null, json,
         summary: "생성됨(SUCCESS) 그러나 errorItems 존재 → 검수 필요",
       };
     }
-    if (json.code === "SUCCESS") {
+
+    if (res.ok && (upperCode === "SUCCESS" || !upperCode)) {
       return {
         ok: true, httpStatus: res.status, contentType,
-        errorClass: "COUPANG_CREATED_SUCCESS", akamaiReference: null, json,
-        summary: "정상 생성",
+        errorClass: null, akamaiReference: null, json,
+        summary: upperCode === "SUCCESS" ? "정상 응답(SUCCESS)" : summarizeJson(json, "정상 응답"),
       };
     }
-    // code/message/errorItems 존재하는 일반 JSON 오류
+
     return {
-      ok: res.ok, httpStatus: res.status, contentType,
+      ok: false, httpStatus: res.status, contentType,
       errorClass: "COUPANG_API_JSON_ERROR", akamaiReference: null, json,
-      summary: `API 오류: code=${json.code ?? "?"} message=${String(json.message ?? "").slice(0, 200)}`,
+      summary: `API 오류: ${summarizeJson(json, `HTTP ${res.status}`)}`,
     };
   }
 
   // 기타
   return {
-    ok: res.ok, httpStatus: res.status, contentType,
+    ok: res.ok,
+    httpStatus: res.status,
+    contentType,
     errorClass: res.ok ? null : "COUPANG_API_JSON_ERROR",
-    akamaiReference: null, json: null,
+    akamaiReference: null,
+    json: null,
     summary: `HTTP ${res.status} (${contentType})`,
   };
 }
@@ -102,7 +119,11 @@ export async function getCategoryMeta(displayCategoryCode: string) {
 }
 
 export async function getSellerProducts() {
-  const query = `vendorId=${env.vendorId}&maxPerPage=1`;
+  const query = new URLSearchParams({
+    vendorId: env.vendorId,
+    nextToken: "1",
+    maxPerPage: "1",
+  }).toString();
   return call("GET", `/v2/providers/seller_api/apis/api/v1/marketplace/seller-products`, query);
 }
 
