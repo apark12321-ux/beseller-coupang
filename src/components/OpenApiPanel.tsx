@@ -25,12 +25,16 @@ type OpenApiInfo = {
     secretKeySet: boolean;
     vendorIdSet: boolean;
   };
+  system?: {
+    lastGetTestOk: boolean;
+    lastGetTestAt: string | null;
+  };
 };
 
 const ENV_ROWS = [
   ["COUPANG_ACCESS_KEY", "쿠팡에서 발급받은 Access Key"],
   ["COUPANG_SECRET_KEY", "쿠팡에서 발급받은 Secret Key"],
-  ["COUPANG_VENDOR_ID", "판매자 ID · 예: A00798505"],
+  ["COUPANG_VENDOR_ID", "판매자 ID · 예: A01506362"],
 ] as const;
 
 export default function OpenApiPanel({ onChanged }: { onChanged: () => void }) {
@@ -57,14 +61,16 @@ export default function OpenApiPanel({ onChanged }: { onChanged: () => void }) {
 
   const serviceUrl = useMemo(() => {
     if (info?.registration.url) return info.registration.url;
-    if (typeof window !== "undefined") return window.location.origin;
-    return "";
+    return "https://beseller-coupang.vercel.app";
   }, [info]);
 
   const ipForWing = info?.registration.ipAddress ?? "";
   const isVercel = !!info?.network.isVercel;
   const cred = info?.credentialStatus;
   const credentialReady = !!(cred?.accessKeySet && cred?.secretKeySet && cred?.vendorIdSet);
+  const persistedGetOk = !!info?.system?.lastGetTestOk;
+  const getTestOk = !!test?.ok || persistedGetOk;
+  const getTestTouched = !!test || !!info?.system?.lastGetTestAt;
 
   async function copy(text: string, label: string) {
     if (!text) return;
@@ -86,7 +92,8 @@ export default function OpenApiPanel({ onChanged }: { onChanged: () => void }) {
         body: JSON.stringify({}),
       });
       setTest(r);
-      setMsg(r.ok ? "GET 테스트 성공" : `GET 테스트 실패: ${r.error || r.sellerProducts?.summary || "원인 확인 필요"}`);
+      setMsg(r.ok ? "GET 테스트 성공" : `GET 테스트 실패: ${r.nextAction || r.error || r.sellerProducts?.summary || "원인 확인 필요"}`);
+      await load();
       onChanged();
     } catch (e: any) {
       setMsg("오류: " + String(e?.message ?? e));
@@ -115,9 +122,9 @@ export default function OpenApiPanel({ onChanged }: { onChanged: () => void }) {
       {msg && <div className={`banner ${msg.includes("오류") || msg.includes("실패") ? "warn" : "info"}`} style={{ marginBottom: 14 }}>{msg}</div>}
 
       {isVercel && (
-        <div className="banner warn">
-          현재 화면은 Vercel 배포 환경입니다. Vercel은 쿠팡 호출용 고정 IP로 보기 어렵기 때문에 실제 GET/POST 등록은 고정 IP가 있는 PC/VPS/릴레이에서 실행하세요.
-          이 Vercel URL은 대시보드 URL로 등록하고, IP 주소는 실제 쿠팡 API를 호출할 고정 IP를 등록하는 방식이 안전합니다.
+        <div className="banner info">
+          현재 Vercel 배포 환경입니다. 아래 IP 주소를 쿠팡 WING에 등록하면 GET 테스트를 진행할 수 있습니다.
+          다만 운영 중 IP가 바뀌면 쿠팡 API가 403으로 막힐 수 있으므로, 장기 운영은 고정 IP VPS/릴레이 방식이 안전합니다.
         </div>
       )}
 
@@ -130,8 +137,8 @@ export default function OpenApiPanel({ onChanged }: { onChanged: () => void }) {
           <CopyField label="URL" value={serviceUrl || "확인 중…"} onCopy={() => copy(serviceUrl, "URL")} />
           <CopyField
             label="IP 주소"
-            value={ipForWing || "고정 IP 환경에서 실행 후 확인"}
-            helper={isVercel ? "Vercel IP는 고정 등록용으로 권장하지 않음" : "이 앱을 실행 중인 서버의 외부 호출 IP"}
+            value={ipForWing || "서버 외부 IP 확인 중"}
+            helper={isVercel ? "이 IP를 쿠팡 WING에 등록한 뒤 GET 테스트를 실행하세요." : "이 앱을 실행 중인 서버의 외부 호출 IP"}
             onCopy={() => copy(ipForWing, "IP 주소")}
             disabled={!ipForWing}
           />
@@ -146,7 +153,12 @@ export default function OpenApiPanel({ onChanged }: { onChanged: () => void }) {
           <StatusRow label="Access Key" ok={!!cred?.accessKeySet} />
           <StatusRow label="Secret Key" ok={!!cred?.secretKeySet} />
           <StatusRow label="Vendor ID" ok={!!cred?.vendorIdSet} />
-          <StatusRow label="GET 테스트" ok={!!test?.ok} muted={!test} />
+          <StatusRow label="GET 테스트" ok={getTestOk} muted={!getTestTouched} />
+          {info?.system?.lastGetTestAt && (
+            <p className="setup-note" style={{ marginTop: 0 }}>
+              마지막 GET 테스트: {new Date(info.system.lastGetTestAt).toLocaleString("ko-KR")}
+            </p>
+          )}
           <div className="env-box">
             {ENV_ROWS.map(([k, desc]) => (
               <div key={k}>
@@ -163,7 +175,7 @@ export default function OpenApiPanel({ onChanged }: { onChanged: () => void }) {
 
       <div className="setup-flow">
         <Step no="1" title="쿠팡 WING에서 OPEN API 키 발급" desc="업체 입력 방식은 ‘자체개발(직접입력)’을 선택합니다. 업체명은 ‘자체 개발’로 입력해도 됩니다." />
-        <Step no="2" title="URL과 IP 등록" desc="URL에는 이 대시보드 주소를 넣고, IP에는 실제 쿠팡 API를 호출할 고정 IP를 넣습니다." />
+        <Step no="2" title="URL과 IP 등록" desc="URL에는 https://beseller-coupang.vercel.app, IP에는 이 화면에 표시된 외부 IP를 넣습니다." />
         <Step no="3" title="환경변수에 Access/Secret 입력" desc="GitHub 코드에 키를 넣지 말고 .env.local 또는 Vercel 환경변수로만 관리합니다." />
         <Step no="4" title="GET 테스트 성공 확인" desc="GET 테스트가 성공해야 Dry Run 이후 실제 임시저장 POST 버튼이 열립니다." />
       </div>
@@ -171,6 +183,7 @@ export default function OpenApiPanel({ onChanged }: { onChanged: () => void }) {
       {test && (
         <div className="setup-result">
           <div style={{ fontSize: 13, fontWeight: 800, marginBottom: 8 }}>GET 테스트 결과</div>
+          {test.nextAction && <div className={`banner ${test.ok ? "info" : "warn"}`}>{test.nextAction}</div>}
           <pre>{JSON.stringify(test, null, 2)}</pre>
         </div>
       )}
