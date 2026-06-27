@@ -1,9 +1,9 @@
 import { NoticeBlock } from "../types";
-import { CS_PHONE } from "../config";
 
 // 고시정보 템플릿.
 // 가공식품(food_processed) / 농수산물(agri_marine) 2종.
-// 기본값은 "상세페이지 참조" 허용, 소비자상담은 CS_PHONE 고정.
+// 기본값은 "상세페이지 참조" 허용.
+// 소비자상담 전화번호는 쿠팡 notices가 아니라 companyContactNumber로 전달한다.
 
 const REF = "상세페이지 참조";
 
@@ -18,7 +18,6 @@ const PROCESSED_FIELDS = [
   "유전자변형식품에 해당하는 경우의 표시",
   "소비자안전을 위한 주의사항",
   "수입식품 문구",
-  "소비자상담 관련 전화번호",
 ];
 
 const AGRI_FIELDS = [
@@ -31,7 +30,6 @@ const AGRI_FIELDS = [
   "보관방법 또는 취급방법",
   "소비자안전을 위한 주의사항",
   "수입식품 문구",
-  "소비자상담 관련 전화번호",
 ];
 
 export function buildNotice(
@@ -44,7 +42,6 @@ export function buildNotice(
 
   const fields = fieldNames.map((name) => {
     if (name.includes("포장단위별")) return { name, content: packageUnit || REF };
-    if (name.includes("소비자상담")) return { name, content: CS_PHONE };
     if (name === "원산지" && origin) return { name, content: origin };
     return { name, content: REF };
   });
