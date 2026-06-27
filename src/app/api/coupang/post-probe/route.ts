@@ -12,6 +12,20 @@ function clone<T>(v: T): T {
   return JSON.parse(JSON.stringify(v));
 }
 
+function hostOf(raw: string | null | undefined) {
+  try { return raw ? new URL(raw).host : null; } catch { return "INVALID_URL"; }
+}
+
+function imageHosts(payload: any) {
+  const item = payload?.items?.[0] ?? {};
+  const images = Array.isArray(item?.images) ? item.images : [];
+  const details = Array.isArray(item?.contents?.[0]?.contentDetails) ? item.contents[0].contentDetails : [];
+  return {
+    itemImageHosts: images.map((x: any) => hostOf(x.vendorPath)),
+    contentHosts: details.map((x: any) => ({ type: x.detailType, host: x.detailType === "IMAGE" ? hostOf(x.content) : null })),
+  };
+}
+
 function payloadStats(payload: any) {
   const text = JSON.stringify(payload);
   const item = payload?.items?.[0] ?? {};
@@ -21,10 +35,12 @@ function payloadStats(payload: any) {
     chars: text.length,
     itemCount: Array.isArray(payload?.items) ? payload.items.length : 0,
     imageCount: Array.isArray(item?.images) ? item.images.length : 0,
-    contentImageCount: Array.isArray(contents) ? contents.length : 0,
+    contentDetailCount: Array.isArray(contents) ? contents.length : 0,
+    contentImageCount: Array.isArray(contents) ? contents.filter((x: any) => x.detailType === "IMAGE").length : 0,
     noticeCount: Array.isArray(item?.notices) ? item.notices.length : 0,
     attributeCount: Array.isArray(item?.attributes) ? item.attributes.length : 0,
     displayCategoryCode: payload?.displayCategoryCode ?? null,
+    hosts: imageHosts(payload),
   };
 }
 
@@ -37,11 +53,54 @@ function maskPayloadForInvalidCategory(payload: any) {
   return p;
 }
 
+function textContents(payload: any) {
+  const p = clone(payload);
+  if (Array.isArray(p.items) && p.items[0]) {
+    p.items[0].contents = [{ contentsType: "TEXT", contentDetails: [{ content: "POST 진단용 상세설명", detailType: "TEXT" }] }];
+  }
+  return p;
+}
+
 function removeImages(payload: any) {
+  const p = textContents(payload);
+  if (Array.isArray(p.items) && p.items[0]) p.items[0].images = [];
+  return p;
+}
+
+function representationOnly(payload: any) {
+  return textContents(payload);
+}
+
+function contentImagesOnly(payload: any) {
+  const p = clone(payload);
+  if (Array.isArray(p.items) && p.items[0]) p.items[0].images = [];
+  return p;
+}
+
+function detailImagesOnly(payload: any) {
   const p = clone(payload);
   if (Array.isArray(p.items) && p.items[0]) {
     p.items[0].images = [];
-    p.items[0].contents = [{ contentsType: "TEXT", contentDetails: [{ content: "POST 진단용 상세설명", detailType: "TEXT" }] }];
+    const details = p.items[0].contents?.[0]?.contentDetails ?? [];
+    const filtered = details.filter((x: any) => {
+      const host = hostOf(x.content);
+      return x.detailType === "IMAGE" && host && !String(host).includes("githubusercontent.com");
+    });
+    p.items[0].contents = [{ contentsType: "IMAGE", contentDetails: filtered }];
+  }
+  return p;
+}
+
+function introOutroOnly(payload: any) {
+  const p = clone(payload);
+  if (Array.isArray(p.items) && p.items[0]) {
+    p.items[0].images = [];
+    const details = p.items[0].contents?.[0]?.contentDetails ?? [];
+    const filtered = details.filter((x: any) => {
+      const host = hostOf(x.content);
+      return x.detailType === "IMAGE" && String(host).includes("githubusercontent.com");
+    });
+    p.items[0].contents = [{ contentsType: "IMAGE", contentDetails: filtered }];
   }
   return p;
 }
@@ -53,6 +112,11 @@ async function pickProduct(req: NextRequest) {
   if (ready.items[0]) return ready.items[0];
   const candidate = await listProducts("candidate", 1, 1);
   return candidate.items[0] ?? null;
+}
+
+async function run(label: string, payload: any) {
+  const result = await createSellerProduct(payload);
+  return { label, stats: payloadStats(payload), result };
 }
 
 export async function GET(req: NextRequest) {
@@ -72,38 +136,34 @@ export async function GET(req: NextRequest) {
     items: [],
   };
 
-  const actualInvalidCategory = maskPayloadForInvalidCategory(actualPayload);
-  const actualNoImagesInvalidCategory = removeImages(actualInvalidCategory);
-
-  const minimalResult = await createSellerProduct(minimalInvalid);
-  const noImagesResult = await createSellerProduct(actualNoImagesInvalidCategory);
-  const fullResult = await createSellerProduct(actualInvalidCategory);
+  const invalid = maskPayloadForInvalidCategory(actualPayload);
+  const probes = {
+    minimal: await run("minimal", minimalInvalid),
+    noImages: await run("noImages", removeImages(invalid)),
+    representationOnly: await run("representationOnly", representationOnly(invalid)),
+    contentImagesOnly: await run("contentImagesOnly", contentImagesOnly(invalid)),
+    detailImagesOnly: await run("detailImagesOnly", detailImagesOnly(invalid)),
+    introOutroOnly: await run("introOutroOnly", introOutroOnly(invalid)),
+    full: await run("full", invalid),
+  };
 
   return NextResponse.json({
     ok: true,
-    diagnostic: "post-probe",
+    diagnostic: "post-probe-v2",
     product: {
       id: product.id,
       name: product.finalName,
       status: product.status,
     },
-    explanation: "모든 호출은 displayCategoryCode=0으로 바꿔 실제 상품 생성이 되지 않도록 한 POST 게이트웨이/본문 진단입니다.",
-    stats: {
-      actual: payloadStats(actualPayload),
-      actualNoImagesInvalidCategory: payloadStats(actualNoImagesInvalidCategory),
-      actualInvalidCategory: payloadStats(actualInvalidCategory),
-    },
-    results: {
-      minimalInvalid,
-      minimalResult,
-      noImagesResult,
-      fullResult,
-    },
+    explanation: "displayCategoryCode=0으로 바꿔 실제 상품 생성 없이 이미지/본문 조합별 403 원인을 찾는 POST 진단입니다.",
+    actualStats: payloadStats(actualPayload),
+    probes,
     interpretation: {
-      ifMinimal403: "최소 POST도 403이면 쿠팡 POST 권한/게이트웨이 문제입니다.",
-      ifNoImagesOkButFull403: "이미지 URL 또는 상세 이미지 본문이 WAF 차단 원인일 가능성이 큽니다.",
-      ifNoImages403: "이미지 외 필드의 값 또는 전체 상품 payload 구조가 WAF 차단 원인일 가능성이 큽니다.",
-      ifAllJsonError: "게이트웨이는 통과합니다. 실제 등록 403은 특정 필드 조합, 카테고리, 이미지, payload 크기 등을 추가 축소해 봐야 합니다.",
+      representationOnly403: "대표 이미지 vendorPath가 차단 원인일 가능성이 큽니다.",
+      contentImagesOnly403: "상세 contents 이미지 중 하나가 차단 원인입니다.",
+      detailImagesOnlyOkIntroOutro403: "GitHub raw intro/outro 이미지가 차단 원인일 가능성이 큽니다.",
+      detailImagesOnly403: "비셀러/메이크샵 상세 이미지 URL 자체가 차단 원인일 가능성이 큽니다.",
+      full403Only: "개별 이미지는 통과하지만 전체 조합/크기/특정 조합이 차단 원인입니다.",
     },
   });
 }
