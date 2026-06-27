@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { credentialStatus } from "@/lib/coupang/hmac";
 import { getMeta } from "@/lib/db";
+import { env } from "@/lib/config";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -31,16 +32,10 @@ function normalizeOrigin(req: NextRequest): string {
 
   const host = req.headers.get("x-forwarded-host") || req.headers.get("host") || process.env.VERCEL_URL || "";
   const normalizedHost = host.replace(/\/$/, "");
-
-  // Vercel preview/deployment URL로 접속해도 쿠팡 WING에는 고정 production URL을 넣게 한다.
-  if (normalizedHost.endsWith(".vercel.app") && normalizedHost !== "beseller-coupang.vercel.app") {
-    return CANONICAL_APP_URL;
-  }
-
+  if (normalizedHost.endsWith(".vercel.app") && normalizedHost !== "beseller-coupang.vercel.app") return CANONICAL_APP_URL;
   if (!normalizedHost) return "http://127.0.0.1:3000";
 
-  const proto =
-    req.headers.get("x-forwarded-proto") ||
+  const proto = req.headers.get("x-forwarded-proto") ||
     (normalizedHost.includes("localhost") || normalizedHost.startsWith("127.0.0.1") ? "http" : "https");
   return `${proto}://${normalizedHost}`.replace(/\/$/, "");
 }
@@ -82,18 +77,31 @@ async function detectServerEgressIp(): Promise<IpCheckResult> {
   return { ip: null, source: null };
 }
 
+async function readRelayHealth() {
+  if (!env.relayUrl || !env.relaySecret) return null;
+  try {
+    const res = await fetch(`${env.relayUrl}/health`, { cache: "no-store" });
+    if (!res.ok) return { ok: false, error: `HTTP ${res.status}` };
+    return await res.json();
+  } catch (e: any) {
+    return { ok: false, error: String(e?.message ?? e) };
+  }
+}
+
 export async function GET(req: NextRequest) {
   const serviceUrl = normalizeOrigin(req);
-  const requestIp =
-    firstForwardedIp(req.headers.get("x-real-ip")) ||
-    firstForwardedIp(req.headers.get("x-forwarded-for"));
+  const requestIp = firstForwardedIp(req.headers.get("x-real-ip")) || firstForwardedIp(req.headers.get("x-forwarded-for"));
   const serverIp = await detectServerEgressIp();
+  const relay = await readRelayHealth();
   const isVercel = !!process.env.VERCEL;
   const meta = await getMeta().catch(() => null);
+  const relayIp = typeof relay?.egressIp === "string" ? relay.egressIp : null;
+  const ipForWing = relayIp || serverIp.ip;
 
   const warnings: string[] = [];
-  if (isVercel) warnings.push("Vercel 배포 환경입니다. 화면에 표시된 IP를 쿠팡 WING에 등록하면 GET 테스트는 진행할 수 있지만, 운영용 고정 IP가 필요하면 VPS/고정 IP 릴레이를 사용하세요.");
-  if (!serverIp.ip) warnings.push("서버 외부 IP를 자동 확인하지 못했습니다. 고정 IP 제공자/공유기/VPS 콘솔에서 확인하세요.");
+  if (env.relayUrl && relayIp) warnings.push("릴레이 모드입니다. 쿠팡 WING에는 릴레이 서버의 고정 IP만 등록하세요.");
+  else if (isVercel) warnings.push("Vercel 직접 호출 모드입니다. 운영 안정성을 위해 COUPANG_RELAY_URL을 연결하세요.");
+  if (!ipForWing) warnings.push("외부 호출 IP를 자동 확인하지 못했습니다. 서버 콘솔에서 공인 IP를 확인하세요.");
 
   return NextResponse.json({
     generatedAt: new Date().toISOString(),
@@ -101,12 +109,16 @@ export async function GET(req: NextRequest) {
       vendorInputType: "자체개발(직접입력)",
       companyName: "자체 개발",
       url: serviceUrl,
-      ipAddress: serverIp.ip,
+      ipAddress: ipForWing,
     },
     network: {
       serviceUrl,
       serverEgressIp: serverIp.ip,
       serverEgressIpSource: serverIp.source,
+      relayMode: !!env.relayUrl,
+      relayUrlSet: !!env.relayUrl,
+      relayOk: !!relay?.ok,
+      relayEgressIp: relayIp,
       requestIp,
       isVercel,
       vercelRegion: process.env.VERCEL_REGION ?? null,
