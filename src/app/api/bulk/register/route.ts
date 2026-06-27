@@ -17,8 +17,12 @@ export async function POST(req: NextRequest) {
     const safeLimit = Math.max(1, Math.min(Number(limit) || 1, 10));
     const meta = await getMeta();
 
-    if (meta.system.cooldownUntil && new Date(meta.system.cooldownUntil) > new Date()) {
-      return NextResponse.json({ stopped: true, reason: "COOLDOWN", cooldownUntil: meta.system.cooldownUntil, message: "쿠팡 403 발생 후 쿨다운 상태입니다." });
+    const cooldownActive = meta.system.cooldownUntil && new Date(meta.system.cooldownUntil) > new Date();
+    if (cooldownActive && !meta.system.lastGetTestOk) {
+      return NextResponse.json({ stopped: true, reason: "COOLDOWN", cooldownUntil: meta.system.cooldownUntil, message: "쿠팡 403 발생 후 쿨다운 상태입니다. OPEN API GET 테스트를 다시 성공시킨 뒤 재시도하세요." });
+    }
+    if (cooldownActive && meta.system.lastGetTestOk) {
+      await mutateMeta((m) => { m.system.cooldownUntil = null; });
     }
     if (!meta.system.lastGetTestOk) {
       return NextResponse.json({ stopped: true, reason: "NO_GET_TEST", message: "GET 테스트 성공 후 가능" });
