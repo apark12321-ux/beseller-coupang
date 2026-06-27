@@ -1,8 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { credentialStatus } from "@/lib/coupang/hmac";
+import { getMeta } from "@/lib/db";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+
+const CANONICAL_APP_URL = "https://beseller-coupang.vercel.app";
 
 type IpCheckResult = { ip: string | null; source: string | null };
 
@@ -12,17 +15,34 @@ function firstForwardedIp(value: string | null): string | null {
   return first ? first.replace(/^::ffff:/, "") : null;
 }
 
+function asHttpsUrl(value: string | undefined | null): string {
+  if (!value) return "";
+  const v = value.trim().replace(/\/$/, "");
+  if (!v) return "";
+  return /^https?:\/\//i.test(v) ? v : `https://${v}`;
+}
+
 function normalizeOrigin(req: NextRequest): string {
-  const envUrl = process.env.NEXT_PUBLIC_APP_URL || process.env.APP_URL || "";
-  if (envUrl) return envUrl.replace(/\/$/, "");
+  const explicitUrl =
+    asHttpsUrl(process.env.NEXT_PUBLIC_APP_URL) ||
+    asHttpsUrl(process.env.APP_URL) ||
+    asHttpsUrl(process.env.VERCEL_PROJECT_PRODUCTION_URL);
+  if (explicitUrl) return explicitUrl;
 
   const host = req.headers.get("x-forwarded-host") || req.headers.get("host") || process.env.VERCEL_URL || "";
-  if (!host) return "http://127.0.0.1:3000";
+  const normalizedHost = host.replace(/\/$/, "");
+
+  // Vercel preview/deployment URL로 접속해도 쿠팡 WING에는 고정 production URL을 넣게 한다.
+  if (normalizedHost.endsWith(".vercel.app") && normalizedHost !== "beseller-coupang.vercel.app") {
+    return CANONICAL_APP_URL;
+  }
+
+  if (!normalizedHost) return "http://127.0.0.1:3000";
 
   const proto =
     req.headers.get("x-forwarded-proto") ||
-    (host.includes("localhost") || host.startsWith("127.0.0.1") ? "http" : "https");
-  return `${proto}://${host}`.replace(/\/$/, "");
+    (normalizedHost.includes("localhost") || normalizedHost.startsWith("127.0.0.1") ? "http" : "https");
+  return `${proto}://${normalizedHost}`.replace(/\/$/, "");
 }
 
 function looksLikeIp(value: string): boolean {
@@ -69,9 +89,10 @@ export async function GET(req: NextRequest) {
     firstForwardedIp(req.headers.get("x-forwarded-for"));
   const serverIp = await detectServerEgressIp();
   const isVercel = !!process.env.VERCEL;
+  const meta = await getMeta().catch(() => null);
 
   const warnings: string[] = [];
-  if (isVercel) warnings.push("Vercel 서버리스 함수의 외부 호출 IP는 고정 IP 등록 대상으로 권장하지 않습니다.");
+  if (isVercel) warnings.push("Vercel 배포 환경입니다. 화면에 표시된 IP를 쿠팡 WING에 등록하면 GET 테스트는 진행할 수 있지만, 운영용 고정 IP가 필요하면 VPS/고정 IP 릴레이를 사용하세요.");
   if (!serverIp.ip) warnings.push("서버 외부 IP를 자동 확인하지 못했습니다. 고정 IP 제공자/공유기/VPS 콘솔에서 확인하세요.");
 
   return NextResponse.json({
@@ -93,5 +114,9 @@ export async function GET(req: NextRequest) {
       warnings,
     },
     credentialStatus: credentialStatus(),
+    system: {
+      lastGetTestOk: !!meta?.system?.lastGetTestOk,
+      lastGetTestAt: meta?.system?.lastGetTestAt ?? null,
+    },
   });
 }
