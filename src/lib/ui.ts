@@ -30,5 +30,40 @@ export const won = (n: number) => (n ? n.toLocaleString("ko-KR") + "원" : "-");
 
 export async function api<T = any>(url: string, opts?: RequestInit): Promise<T> {
   const res = await fetch(url, opts);
-  return res.json();
+  const contentType = res.headers.get("content-type") ?? "";
+  const text = await res.text();
+
+  if (!text.trim()) {
+    return {
+      error: `EMPTY_RESPONSE_${res.status}`,
+      message: "서버 응답이 비어 있습니다. 일시적인 타임아웃 또는 터널 연결 끊김일 수 있습니다.",
+      httpStatus: res.status,
+      stopped: true,
+    } as T;
+  }
+
+  if (contentType.includes("application/json")) {
+    try {
+      return JSON.parse(text) as T;
+    } catch (e: any) {
+      return {
+        error: "INVALID_JSON_RESPONSE",
+        message: `JSON 응답 해석 실패: ${String(e?.message ?? e)}`,
+        httpStatus: res.status,
+        bodyPreview: text.slice(0, 300),
+        stopped: true,
+      } as T;
+    }
+  }
+
+  try {
+    return JSON.parse(text) as T;
+  } catch {
+    return {
+      error: `NON_JSON_RESPONSE_${res.status}`,
+      message: text.slice(0, 300) || `HTTP ${res.status}`,
+      httpStatus: res.status,
+      stopped: true,
+    } as T;
+  }
 }
