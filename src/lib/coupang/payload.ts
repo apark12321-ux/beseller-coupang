@@ -13,7 +13,8 @@ function isoPlus(years: number): string {
 }
 
 // 기존 DB에 저장된 고시정보명을 쿠팡이 현재 받는 문구로 보정한다.
-// 테스트 결과: 8/9/11번은 긴 표준 문구가 필요하고, 3/10번은 짧은 문구가 필요하다.
+// 테스트 결과: 8/9번은 긴 표준 문구가 필요하고, 3/10번은 짧은 문구가 필요하다.
+// 11번 소비자상담은 현재 카테고리에서 notices로 받지 않고 companyContactNumber로 이미 전달되므로 제외한다.
 function normalizeNoticeDetailName(categoryName: string, detailName: string): string {
   if (categoryName === "가공식품") {
     const map: Record<string, string> = {
@@ -23,8 +24,6 @@ function normalizeNoticeDetailName(categoryName: string, detailName: string): st
       "소비자안전 주의사항": "소비자안전을 위한 주의사항",
       "소비자안전을 위한 주의사항": "소비자안전을 위한 주의사항",
       "수입식품안전관리특별법에 따른 수입신고를 필함": "수입식품 문구",
-      "소비자상담 전화번호": "소비자상담 관련 전화번호",
-      "소비자상담 관련 전화번호": "소비자상담 관련 전화번호",
     };
     return map[detailName] ?? detailName;
   }
@@ -34,13 +33,15 @@ function normalizeNoticeDetailName(categoryName: string, detailName: string): st
       "소비자안전 주의사항": "소비자안전을 위한 주의사항",
       "소비자안전을 위한 주의사항": "소비자안전을 위한 주의사항",
       "수입식품안전관리특별법에 따른 수입신고를 필함": "수입식품 문구",
-      "소비자상담 전화번호": "소비자상담 관련 전화번호",
-      "소비자상담 관련 전화번호": "소비자상담 관련 전화번호",
     };
     return map[detailName] ?? detailName;
   }
 
   return detailName;
+}
+
+function shouldSendNotice(detailName: string): boolean {
+  return !detailName.includes("소비자상담");
 }
 
 export function buildPayload(p: Product, requested = false, resolvedCategoryCode?: string | null) {
@@ -52,11 +53,13 @@ export function buildPayload(p: Product, requested = false, resolvedCategoryCode
     ? [{ imageOrder: 0, imageType: "REPRESENTATION", vendorPath: p.images.representationUrl }]
     : [];
 
-  const notices = p.notice.fields.map((f) => ({
-    noticeCategoryName: p.notice.noticeCategoryName,
-    noticeCategoryDetailName: normalizeNoticeDetailName(p.notice.noticeCategoryName, f.name),
-    content: f.content,
-  }));
+  const notices = p.notice.fields
+    .filter((f) => shouldSendNotice(f.name))
+    .map((f) => ({
+      noticeCategoryName: p.notice.noticeCategoryName,
+      noticeCategoryDetailName: normalizeNoticeDetailName(p.notice.noticeCategoryName, f.name),
+      content: f.content,
+    }));
 
   const item = {
     itemName: o.itemName,
