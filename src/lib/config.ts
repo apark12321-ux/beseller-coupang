@@ -81,7 +81,7 @@ export const TAX_FREE_PREFIXES = ["C002005", "C002003003", "C002003001", "C00200
 // ── 배송/반품 고정값 (스펙 §10, 오타 포함 명세 그대로 유지) ──────────────────
 export const DELIVERY = {
   deliveryMethod: "SEQUENCIAL",
-  deliveryCompanyCode: "HANJIN",
+  deliveryCompanyCode: "CJGLS",
   deliveryChargeType: "FREE",
   deliveryCharge: 0,
   freeShipOverAmount: 0,
