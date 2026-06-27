@@ -36,7 +36,6 @@ export async function POST(req: NextRequest) {
   await mutateMeta((m) => {
     m.system.lastGetTestOk = ok;
     m.system.lastGetTestAt = new Date().toISOString();
-    m.system.lastGetTestSummary = sample.summary;
   });
 
   return NextResponse.json({
