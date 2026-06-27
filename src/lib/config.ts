@@ -5,7 +5,7 @@ import { Settings } from "./types";
 export const env = {
   accessKey: process.env.COUPANG_ACCESS_KEY ?? "",
   secretKey: process.env.COUPANG_SECRET_KEY ?? "",
-  vendorId: process.env.COUPANG_VENDOR_ID ?? "A00798505",
+  vendorId: process.env.COUPANG_VENDOR_ID ?? "",
   baseUrl: (process.env.COUPANG_BASE_URL ?? "https://api-gateway.coupang.com").replace(/\/$/, ""),
   outboundShippingPlaceCode: process.env.COUPANG_OUTBOUND_SHIPPING_PLACE_CODE ?? "21091381",
   returnCenterCode: process.env.COUPANG_RETURN_CENTER_CODE ?? "1001922983",
