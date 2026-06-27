@@ -20,7 +20,7 @@ export function buildImageSet(detailRaw: string[], base?: string): ImageSet {
     .map((r) => fixImageUrl(r, base))
     .filter((x): x is string => !!x);
   const representationUrl = detailUrls[0] ?? null;
-  return { representationUrl, detailUrls, introUrl: null, outroUrl: null };
+  return { representationUrl, detailUrls, introUrl: "", outroUrl: "" };
 }
 
 // 쿠팡 contents 구성.
