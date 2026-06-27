@@ -6,24 +6,36 @@ export const runtime = "nodejs";
 export const maxDuration = 60;
 
 export async function POST(req: NextRequest) {
-  const { offset = 0, limit = 15 } = await req.json().catch(() => ({}));
+  const { offset = 0, limit = 3 } = await req.json().catch(() => ({}));
+  const safeLimit = Math.max(1, Math.min(Number(limit) || 3, 5));
   const cred = credentialStatus();
-  if (!cred.accessKeySet || !cred.secretKeySet) return NextResponse.json({ stopped: true, reason: "NO_KEY", message: "쿠팡 키 미설정" }, { status: 400 });
+  if (!cred.accessKeySet || !cred.secretKeySet || !cred.vendorIdSet) {
+    return NextResponse.json({ stopped: true, reason: "NO_KEY", message: "쿠팡 키 또는 Vendor ID 미설정" }, { status: 400 });
+  }
 
   const meta = await getMeta();
-  const page = Math.floor(offset / limit) + 1;
-  const { items, total } = await listProducts("all", page, limit);
+  const page = Math.floor(offset / safeLimit) + 1;
+  const { items, total } = await listProducts("all", page, safeLimit);
   let recommended = 0;
   const changed: any[] = [];
+
   for (const p of items) {
     if (p.status === "excluded") continue;
-    // 이미 개별 지정/매핑된 건 건너뜀
     if (p.category.displayCategoryCode || meta.catmap[p.beSellerCode]?.displayCategoryCode) continue;
-    const res = await predictCategory(p.finalName);
-    if (res.errorClass === "COUPANG_GATEWAY_ACCESS_DENIED") {
+
+    let res;
+    try {
+      res = await predictCategory(p.finalName);
+    } catch (e: any) {
       if (changed.length) await saveProductsBatch(changed);
-      return NextResponse.json({ stopped: true, reason: "COUPANG_GATEWAY_ACCESS_DENIED", recommended, akamaiReference: res.akamaiReference, message: "쿠팡 게이트웨이 403 — 등록 IP에서 실행하세요." });
+      return NextResponse.json({ stopped: true, reason: "CATEGORY_PREDICT_EXCEPTION", recommended, message: String(e?.message ?? e) });
     }
+
+    if (!res.ok) {
+      if (changed.length) await saveProductsBatch(changed);
+      return NextResponse.json({ stopped: true, reason: res.errorClass || "CATEGORY_PREDICT_FAILED", recommended, httpStatus: res.httpStatus, message: res.summary, rejectedIp: res.rejectedIp, akamaiReference: res.akamaiReference });
+    }
+
     const pid = (res.json as any)?.data?.predictedCategoryId;
     if (pid) {
       p.category.displayCategoryCode = String(pid);
@@ -34,6 +46,7 @@ export async function POST(req: NextRequest) {
       changed.push(p);
     }
   }
+
   if (changed.length) await saveProductsBatch(changed);
   const nextOffset = offset + items.length;
   return NextResponse.json({ processed: items.length, nextOffset, total, done: nextOffset >= total, recommended });
