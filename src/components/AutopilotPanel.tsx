@@ -32,34 +32,47 @@ export default function AutopilotPanel({ onChanged }: { onChanged: () => void })
     setRunning(true); setLog([]); setSteps({ price: "idle", cat: "idle", dry: "idle", reg: "idle" });
     add("자동 처리 시작", "dim");
     try {
-      // 1) 가격·이미지 재계산
       setStep("price", "run"); add("① 가격·이미지 재계산…");
-      await loopOffset("/api/recompute", { limit: 300 }, (r) => add(`   ${Math.min(r.nextOffset, r.total)}/${r.total} 처리`, "dim"));
+      const recompute = await loopOffset("/api/recompute", { limit: 300 }, (r) => add(`   ${Math.min(r.nextOffset, r.total)}/${r.total} 처리`, "dim"));
+      if (recompute.error || recompute.stopped) { setStep("price", "err"); add(`① 중단: ${recompute.message || recompute.error || recompute.reason}`, "err"); return; }
       setStep("price", "done"); add("① 완료", "ok");
 
-      // 2) 카테고리 자동배정 (옵션, 쿠팡 API)
       if (doRecommend) {
         setStep("cat", "run"); add("② 카테고리 자동배정(쿠팡 추천)…");
-        const r = await loopOffset("/api/bulk/category-recommend", { limit: 15 }, (r) => add(`   배정 ${r.recommended ?? 0}건 누적`, "dim"));
-        if (r.stopped) { setStep("cat", "err"); add(`② 중단: ${r.reason} — 등록 IP에서 실행 필요`, "err"); }
-        else { setStep("cat", "done"); add(`② 완료 (추천 배정 ${r.recommended ?? 0}건)`, "ok"); }
+        let totalRecommended = 0;
+        const r = await loopOffset("/api/bulk/category-recommend", { limit: 3 }, (r) => {
+          totalRecommended += r.recommended || 0;
+          add(`   ${Math.min(r.nextOffset, r.total)}/${r.total} 확인 · 배정 ${totalRecommended}건 누적`, "dim");
+        });
+        if (r.error || r.stopped) {
+          setStep("cat", "err");
+          add(`② 중단: ${r.message || r.error || r.reason || "카테고리 자동배정 실패"}`, "err");
+          add("터널/PC 절전/쿠팡 응답 지연이면 그대로 다시 실행하면 이미 저장된 건은 건너뛰고 이어서 진행됩니다.", "dim");
+          return;
+        }
+        setStep("cat", "done"); add(`② 완료 (추천 배정 ${totalRecommended}건)`, "ok");
       } else { add("② 카테고리 자동배정 건너뜀 (매핑표 사용)", "dim"); }
 
-      // 3) 일괄 Dry Run
       setStep("dry", "run"); add("③ 일괄 Dry Run(검증)…");
       let ready = 0, blocked = 0;
-      await loopOffset("/api/bulk/dry-run", { limit: 300 }, (r) => { ready += r.ready || 0; blocked += r.blocked || 0; add(`   준비완료 ${ready} / 차단 ${blocked}`, "dim"); });
-      setStep("dry", "done"); add(`③ 완료 — 등록 준비 ${ready}건, 차단 ${blocked}건`, "ok");
+      const dry = await loopOffset("/api/bulk/dry-run", { limit: 300 }, (r) => { ready += r.ready || 0; blocked += r.blocked || 0; add(`   준비완료 ${ready} / 차단 ${blocked}`, "dim"); });
+      if (dry.error || dry.stopped) { setStep("dry", "err"); add(`③ 중단: ${dry.message || dry.error || dry.reason}`, "err"); return; }
+      setStep("dry", "done"); add(`③ 완료 — 등록 준비 ${ready}건, 차단 ${blocked}건`, ready > 0 ? "ok" : "err");
       onChanged();
 
-      // 4) 실제 등록 (옵션, 쿠팡 API, 등록 IP)
+      if (ready <= 0) {
+        if (doRegister) setStep("reg", "err");
+        add("등록 준비 상품이 0건이라 실제 등록을 실행하지 않습니다.", "err");
+        return;
+      }
+
       if (doRegister) {
         setStep("reg", "run"); add("④ 실제 등록(임시저장, requested=false)…");
         let reg = 0, fail = 0, guard = 0;
         while (guard++ < 2000) {
           const r = await api("/api/bulk/register", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ limit: 10 }) });
-          if (r.error) { setStep("reg", "err"); add(`④ 오류: ${r.error}`, "err"); break; }
-          if (r.stopped) { setStep("reg", "err"); add(`④ 중단: ${r.reason}${r.cooldownUntil ? " (쿨다운)" : ""} — 등록 IP/조건 확인`, "err"); break; }
+          if (r.error) { setStep("reg", "err"); add(`④ 오류: ${r.message || r.error}`, "err"); break; }
+          if (r.stopped) { setStep("reg", "err"); add(`④ 중단: ${r.message || r.reason}${r.cooldownUntil ? " (쿨다운)" : ""}`, "err"); break; }
           reg += r.registered || 0; fail += r.failed || 0;
           add(`   등록 ${reg} / 실패 ${fail} (남은 ${r.remaining})`, "dim"); scroll();
           onChanged();
