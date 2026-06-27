@@ -195,13 +195,13 @@ async function callDirect(method: "GET" | "POST", apiPath: string, query = "", b
   };
 }
 
-async function call(method: "GET" | "POST", apiPath: string, query = "", body?: unknown): Promise<CoupangResult> {
+export async function callCoupang(method: "GET" | "POST", apiPath: string, query = "", body?: unknown): Promise<CoupangResult> {
   if (env.relayUrl && env.relaySecret) return callViaRelay(method, apiPath, query, body);
   return callDirect(method, apiPath, query, body);
 }
 
 export async function getCategoryMeta(displayCategoryCode: string) {
-  return call("GET", `/v2/providers/seller_api/apis/api/v1/marketplace/meta/category-related-metas/display-category-codes/${displayCategoryCode}`);
+  return callCoupang("GET", `/v2/providers/seller_api/apis/api/v1/marketplace/meta/category-related-metas/display-category-codes/${displayCategoryCode}`);
 }
 
 export async function getSellerProducts() {
@@ -210,13 +210,13 @@ export async function getSellerProducts() {
     nextToken: "1",
     maxPerPage: "1",
   }).toString();
-  return call("GET", `/v2/providers/seller_api/apis/api/v1/marketplace/seller-products`, query);
+  return callCoupang("GET", `/v2/providers/seller_api/apis/api/v1/marketplace/seller-products`, query);
 }
 
 export async function createSellerProduct(payload: unknown) {
-  return call("POST", `/v2/providers/seller_api/apis/api/v1/marketplace/seller-products`, "", payload);
+  return callCoupang("POST", `/v2/providers/seller_api/apis/api/v1/marketplace/seller-products`, "", payload);
 }
 
 export async function predictCategory(productName: string) {
-  return call("POST", `/v2/providers/openapi/apis/api/v1/categorization/predict`, "", { productName });
+  return callCoupang("POST", `/v2/providers/openapi/apis/api/v1/categorization/predict`, "", { productName });
 }
