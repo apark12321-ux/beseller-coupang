@@ -9,7 +9,10 @@ export const dynamic = "force-dynamic";
 function nextAction(sample: any): string {
   if (sample?.ok) return "GET 성공. 쿠팡 키·Vendor ID·IP·HMAC 기본 연동이 정상입니다.";
   if (sample?.errorClass === "COUPANG_GATEWAY_ACCESS_DENIED") {
-    return "쿠팡 WING OPEN API 화면의 IP 주소에 현재 표시된 서버 외부 IP를 등록한 뒤 1~5분 후 다시 실행하세요.";
+    if (sample?.rejectedIp) {
+      return `쿠팡 WING OPEN API의 IP 주소에 ${sample.rejectedIp} 를 추가 등록한 뒤 1~5분 후 다시 GET 테스트를 실행하세요.`;
+    }
+    return "쿠팡 WING OPEN API 화면의 IP 주소와 실제 호출 IP가 다릅니다. 결과에 표시된 IP를 추가 등록한 뒤 다시 실행하세요.";
   }
   if (sample?.httpStatus === 401 || sample?.httpStatus === 400) {
     return "Access Key, Secret Key, Vendor ID가 같은 업체코드에서 발급된 값인지 확인하세요.";
@@ -45,6 +48,7 @@ export async function POST(req: NextRequest) {
       httpStatus: sample.httpStatus,
       errorClass: sample.errorClass,
       akamaiReference: sample.akamaiReference,
+      rejectedIp: sample.rejectedIp,
       summary: sample.summary,
     },
     categoryMeta: meta ? {
