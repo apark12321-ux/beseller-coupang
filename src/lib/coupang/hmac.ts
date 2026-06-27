@@ -33,9 +33,11 @@ export function sign(method: string, urlPath: string, query: string): SignResult
 
 // 키 설정 여부만 안전하게 보고(값 노출 없음)
 export function credentialStatus() {
+  const relayConfigured = !!(env.relayUrl && env.relaySecret);
   return {
-    accessKeySet: !!env.accessKey,
-    secretKeySet: !!env.secretKey,
-    vendorIdSet: !!env.vendorId,
+    accessKeySet: relayConfigured || !!env.accessKey,
+    secretKeySet: relayConfigured || !!env.secretKey,
+    vendorIdSet: relayConfigured || !!env.vendorId,
+    relayConfigured,
   };
 }
