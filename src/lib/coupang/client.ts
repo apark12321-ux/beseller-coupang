@@ -14,6 +14,8 @@ export interface CoupangResult {
   errorClass: ErrorClass | null;
   // 게이트웨이 403 HTML 에서 추출
   akamaiReference: string | null;
+  // 쿠팡 JSON 403 메시지에서 추출한 미허용 호출 IP
+  rejectedIp: string | null;
   // JSON 응답이면 파싱 결과(민감정보 없음)
   json: unknown | null;
   // 사람이 읽는 요약(민감정보 제거됨)
@@ -22,6 +24,11 @@ export interface CoupangResult {
 
 function extractAkamaiRef(html: string): string | null {
   const m = html.match(/Reference[^0-9a-fA-F]*([0-9a-fA-F.\-]+)/);
+  return m ? m[1] : null;
+}
+
+function extractNotAllowedIp(message: string): string | null {
+  const m = message.match(/ip address\s+([0-9]{1,3}(?:\.[0-9]{1,3}){3})\s+is not allowed/i);
   return m ? m[1] : null;
 }
 
@@ -60,6 +67,7 @@ async function call(method: "GET" | "POST", apiPath: string, query = "", body?: 
       contentType,
       errorClass: "COUPANG_GATEWAY_ACCESS_DENIED",
       akamaiReference: extractAkamaiRef(text),
+      rejectedIp: null,
       json: null,
       summary: "쿠팡 게이트웨이 403 Access Denied. 쿠팡 WING에 등록한 IP와 실제 호출 IP가 다르거나, 해당 IP가 아직 허용되지 않았습니다.",
     };
@@ -76,12 +84,22 @@ async function call(method: "GET" | "POST", apiPath: string, query = "", body?: 
   if (json && typeof json === "object") {
     const code = json.code;
     const upperCode = typeof code === "string" ? code.toUpperCase() : "";
+    const message = String(json.message ?? json.resultMessage ?? json.errorMessage ?? json.error ?? "");
+    const rejectedIp = extractNotAllowedIp(message);
     const hasErrorItems = Array.isArray(json.data?.errorItems) && json.data.errorItems.length > 0;
+
+    if (res.status === 403 && rejectedIp) {
+      return {
+        ok: false, httpStatus: res.status, contentType,
+        errorClass: "COUPANG_GATEWAY_ACCESS_DENIED", akamaiReference: null, rejectedIp, json,
+        summary: `쿠팡 IP 미허용: ${rejectedIp}를 WING OPEN API IP 주소에 추가 등록해야 합니다.`,
+      };
+    }
 
     if (upperCode === "SUCCESS" && hasErrorItems) {
       return {
         ok: false, httpStatus: res.status, contentType,
-        errorClass: "COUPANG_CREATED_WITH_ERRORS", akamaiReference: null, json,
+        errorClass: "COUPANG_CREATED_WITH_ERRORS", akamaiReference: null, rejectedIp: null, json,
         summary: "생성됨(SUCCESS) 그러나 errorItems 존재 → 검수 필요",
       };
     }
@@ -89,14 +107,14 @@ async function call(method: "GET" | "POST", apiPath: string, query = "", body?: 
     if (res.ok && (upperCode === "SUCCESS" || !upperCode)) {
       return {
         ok: true, httpStatus: res.status, contentType,
-        errorClass: null, akamaiReference: null, json,
+        errorClass: null, akamaiReference: null, rejectedIp: null, json,
         summary: upperCode === "SUCCESS" ? "정상 응답(SUCCESS)" : summarizeJson(json, "정상 응답"),
       };
     }
 
     return {
       ok: false, httpStatus: res.status, contentType,
-      errorClass: "COUPANG_API_JSON_ERROR", akamaiReference: null, json,
+      errorClass: "COUPANG_API_JSON_ERROR", akamaiReference: null, rejectedIp: null, json,
       summary: `API 오류: ${summarizeJson(json, `HTTP ${res.status}`)}`,
     };
   }
@@ -108,6 +126,7 @@ async function call(method: "GET" | "POST", apiPath: string, query = "", body?: 
     contentType,
     errorClass: res.ok ? null : "COUPANG_API_JSON_ERROR",
     akamaiReference: null,
+    rejectedIp: null,
     json: null,
     summary: `HTTP ${res.status} (${contentType})`,
   };
