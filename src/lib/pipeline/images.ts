@@ -15,11 +15,33 @@ export function fixImageUrl(raw: string, base?: string): string | null {
   return (base || BESELLER_IMG_BASE) + fname;
 }
 
+function appBaseUrl(): string {
+  const explicit = (process.env.NEXT_PUBLIC_APP_URL || process.env.APP_BASE_URL || "").trim();
+  if (explicit) return explicit.replace(/\/$/, "");
+
+  const vercelUrl = (process.env.VERCEL_URL || "").trim();
+  if (vercelUrl) return `https://${vercelUrl}`.replace(/\/$/, "");
+
+  return "";
+}
+
+// 쿠팡 대표이미지는 500x500~5000x5000, 10MB 이하 제한이 엄격하다.
+// 원본 비셀러 썸네일이 작을 수 있으므로 대표이미지만 우리 서버에서 800x800 JPG로 정규화한다.
+export function normalizeRepresentativeImageUrl(url: string | null): string | null {
+  if (!url) return null;
+  if (url.includes("/api/image/representative?")) return url;
+
+  const base = appBaseUrl();
+  if (!base) return url;
+
+  return `${base}/api/image/representative?url=${encodeURIComponent(url)}`;
+}
+
 export function buildImageSet(detailRaw: string[], base?: string): ImageSet {
   const detailUrls = detailRaw
     .map((r) => fixImageUrl(r, base))
     .filter((x): x is string => !!x);
-  const representationUrl = detailUrls[0] ?? null;
+  const representationUrl = normalizeRepresentativeImageUrl(detailUrls[0] ?? null);
   return { representationUrl, detailUrls, introUrl: "", outroUrl: "" };
 }
 
