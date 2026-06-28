@@ -1,7 +1,7 @@
 import { Product } from "../types";
 import { env, DELIVERY, CS_PHONE } from "../config";
 import { toAttributes } from "../pipeline/options";
-import { buildContents } from "../pipeline/images";
+import { buildContents, normalizeRepresentativeImageUrl } from "../pipeline/images";
 
 // Product → 쿠팡 sellerProduct 생성 payload.
 // requested=false 로 임시저장만. saleStartedAt/EndedAt 자동 설정.
@@ -48,9 +48,10 @@ export function buildPayload(p: Product, requested = false, resolvedCategoryCode
   const o = p.option;
   const attributes = toAttributes(o);
   const contents = buildContents(p.images);
+  const representationUrl = normalizeRepresentativeImageUrl(p.images.representationUrl);
 
-  const images = p.images.representationUrl
-    ? [{ imageOrder: 0, imageType: "REPRESENTATION", vendorPath: p.images.representationUrl }]
+  const images = representationUrl
+    ? [{ imageOrder: 0, imageType: "REPRESENTATION", vendorPath: representationUrl }]
     : [];
 
   const notices = p.notice.fields
